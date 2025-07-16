@@ -1,21 +1,23 @@
 async function searchResults(keyword) {
+  const baseUrl = "https://4i.nxdwle.shop";
+  const searchUrl = `${baseUrl}/?s=${encodeURIComponent(keyword)}`;
+  const results = [];
+
   try {
-    const searchUrl = `https://4i.nxdwle.shop/?s=${encodeURIComponent(keyword)}`;
-    const res = await fetchv2(searchUrl);
-    const html = await res.text();
+    const response = await fetchv2(searchUrl);
+    const html = await response.text();
 
-    const results = [];
-
-    const matches = [...html.matchAll(/<a href="([^"]+)"[^>]*title="([^"]+)"[^>]*>[\s\S]*?<img[^>]+src="([^"]+)"/g)];
+    // البوستات الحقيقية فيها "div" بكلاس "AnimeTitle" وليس روابط مؤلفين
+    const matches = [...html.matchAll(/<div class="AnimeTitle">[\s\S]*?<a href="([^"]+)"[^>]*>([^<]+)<\/a>[\s\S]*?src="([^"]+)"/g)];
 
     for (const match of matches) {
-      const href = match[1];
-      const rawTitle = decodeHTMLEntities(match[2]);
-      const image = match[3];
+      const href = match[1].trim();
+      const rawTitle = decodeHTMLEntities(match[2].trim());
+      const image = match[3].trim();
       const englishTitle = rawTitle.match(/[a-zA-Z0-9:.\-()]+/g)?.join(' ') || rawTitle;
 
       results.push({
-        title: englishTitle.trim(),
+        title: englishTitle,
         href,
         image
       });
@@ -23,7 +25,7 @@ async function searchResults(keyword) {
 
     return JSON.stringify(results);
   } catch (err) {
-    console.error('searchResults error:', err);
+    console.error("searchResults error:", err);
     return JSON.stringify([]);
   }
 }
