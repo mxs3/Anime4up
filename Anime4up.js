@@ -2,7 +2,8 @@ function searchResults(html) {
   const results = [];
 
   const cards = html.match(/<div class="anime-card-container">[\s\S]*?<\/div>\s*<\/div>/g);
-  if (!cards) return results;
+  console.log("Total cards found:", cards?.length || 0);
+  if (!cards) return JSON.stringify(results);
 
   cards.forEach(card => {
     const hrefMatch = card.match(/<a href="([^"]+)" class="overlay">/);
@@ -14,14 +15,14 @@ function searchResults(html) {
       const title = decodeHTMLEntities(titleMatch[1].trim());
       const image = imgMatch[1].trim();
 
-      // نتأكد إن الرابط فعلاً يشير لأنمي وليس مؤلف أو تصنيف
       if (href.includes("/anime/")) {
         results.push({ title, href, image });
       }
     }
   });
 
-  return results;
+  console.log("Results:", results);
+  return JSON.stringify(results);
 }
 
 function decodeHTMLEntities(text) {
