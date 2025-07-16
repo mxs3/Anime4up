@@ -1,20 +1,31 @@
 async function search(query) {
-    const searchUrl = `https://4i.nxdwle.shop/?s=${encodeURIComponent(query)}`;
+    const url = "https://4i.nxdwle.shop/wp-admin/admin-ajax.php";
+    const body = `action=ts_ac_do_search&ts_ac_query=${encodeURIComponent(query)}`;
+
     try {
-        const res = await fetchv2(searchUrl);
-        const html = await res.text();
-        const results = searchResults(html);
+        const res = await fetchv2(url, {
+            "Content-Type": "application/x-www-form-urlencoded; charset=UTF-8"
+        }, "POST", body);
+
+        const text = await res.text();
+
+        if (!text.trim()) {
+            console.log("Empty response from search");
+            return JSON.stringify([]);
+        }
+
+        const results = searchResults(text);
         return JSON.stringify(results);
+
     } catch (err) {
-        console.log('Search Error:', err);
+        console.log("Search failed:", err);
         return JSON.stringify([]);
     }
 }
 
 function searchResults(html) {
     const results = [];
-    
-    const regex = /<div\s+class="Anime--Block">[\s\S]*?<a\s+href="([^"]+)"[^>]*>\s*<div[^>]+style="background-image:\s*url\(([^)]+)\)"[^>]*>\s*<\/div>\s*<\/a>\s*<div[^>]*>\s*<h3[^>]*>(.*?)<\/h3>/g;
+    const regex = /<a[^>]+href="([^"]+)"[^>]*>\s*<div[^>]+style="background-image:\s*url\(([^)]+)\)[^>]*>\s*<\/div>\s*<h3[^>]*>([^<]+)<\/h3>/g;
 
     let match;
     while ((match = regex.exec(html)) !== null) {
