@@ -1,35 +1,42 @@
 async function search(query) {
-  const searchUrl = `https://4i.nxdwle.shop/?s=${encodeURIComponent(query)}`;
-  try {
-    const res = await fetchv2(searchUrl);
-    const html = await res.text();
-    return JSON.stringify(searchResults(html));
-  } catch (err) {
-    console.error("Search error:", err);
-    return JSON.stringify([]);
-  }
+    const searchUrl = `https://4i.nxdwle.shop/?s=${encodeURIComponent(query)}`;
+    try {
+        const res = await fetchv2(searchUrl);
+        const html = await res.text();
+        const results = searchResults(html);
+        return JSON.stringify(results);
+    } catch (err) {
+        console.log('Search Error:', err);
+        return JSON.stringify([]);
+    }
 }
 
 function searchResults(html) {
-  const results = [];
-  const itemBlocks = html.match(/<div class="anime-card-container">[\s\S]*?<\/a>/g);
-  if (!itemBlocks) return results;
+    const results = [];
+    
+    const regex = /<div\s+class="Anime--Block">[\s\S]*?<a\s+href="([^"]+)"[^>]*>\s*<div[^>]+style="background-image:\s*url\(([^)]+)\)"[^>]*>\s*<\/div>\s*<\/a>\s*<div[^>]*>\s*<h3[^>]*>(.*?)<\/h3>/g;
 
-  itemBlocks.forEach(block => {
-    const hrefMatch = block.match(/<a href="([^"]+)"/);
-    const titleMatch = block.match(/<h3 class="anime-card-title">([^<]+)<\/h3>/);
-    const imgMatch = block.match(/<img[^>]+data-src="([^"]+)"/);
+    let match;
+    while ((match = regex.exec(html)) !== null) {
+        const href = match[1].trim();
+        const image = match[2].trim();
+        const rawTitle = match[3].trim();
+        const title = decodeHTMLEntities(rawTitle).match(/[a-zA-Z0-9:.\-() ]+/g)?.join(' ').trim() || rawTitle;
 
-    if (hrefMatch && titleMatch && imgMatch) {
-      const href = hrefMatch[1];
-      const title = titleMatch[1].trim();
-      const image = imgMatch[1];
-
-      results.push({ title, href, image });
+        results.push({ title, href, image });
     }
-  });
 
-  return results;
+    return results;
+}
+
+function decodeHTMLEntities(text) {
+    return text
+        .replace(/&#(\d+);/g, (_, dec) => String.fromCharCode(dec))
+        .replace(/&quot;/g, '"')
+        .replace(/&amp;/g, '&')
+        .replace(/&apos;/g, "'")
+        .replace(/&lt;/g, '<')
+        .replace(/&gt;/g, '>');
 }
 
 async function extractDetails(url) {
