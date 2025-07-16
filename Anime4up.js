@@ -1,96 +1,29 @@
-function searchResults(html) {
+async function searchResults(keyword) {
+    const encoded = encodeURIComponent(keyword);
+    const url = `https://4i.nxdwle.shop/?s=${encoded}`;
+    const res = await fetchv2(url);
+    const html = await res.text();
+
     const results = [];
+    const containerMatches = html.matchAll(/<div class="anime-card-container">([\s\S]*?)<\/div>\s*<\/div>/g);
 
-    const itemBlocks = html.match(/<div class="MovieItem">[\s\S]*?<h4>(.*?)<\/h4>[\s\S]*?<\/a>/g);
+    for (const match of containerMatches) {
+        const block = match[1];
 
-    if (!itemBlocks) return results;
+        const titleMatch = block.match(/anime-card-title[^>]*>\s*<h3>\s*<a[^>]*>([^<]+)<\/a>/);
+        const urlMatch = block.match(/<a[^>]+href="([^"]+)"[^>]*class="overlay"/);
+        const imageMatch = block.match(/<img[^>]+src="([^"]+)"/);
 
-    itemBlocks.forEach(block => {
-        const hrefMatch = block.match(/<a href="([^"]+)"/);
-        const titleMatch = block.match(/<h4>(.*?)<\/h4>/);
-        const imgMatch = block.match(/background-image:\s*url\(([^)]+)\)/);
-
-        if (hrefMatch && titleMatch && imgMatch) {
-            const href = hrefMatch[1].trim();
-            const title = titleMatch[1].trim();
-            const image = imgMatch[1].trim();
-
-            results.push({ title, image, href });
+        if (titleMatch && urlMatch && imageMatch) {
+            results.push({
+                title: titleMatch[1].trim(),
+                href: urlMatch[1].trim(),
+                image: imageMatch[1].trim()
+            });
         }
-    });
+    }
 
-    console.log(results);
     return results;
-}
-
-function extractDetails(html) {
-    const details = [];
-
-    const descriptionMatch = html.match(/<p[^>]*>(.*?)<\/p>/s);
-    let description = descriptionMatch 
-        ? decodeHTMLEntities(descriptionMatch[1].trim()) 
-        : 'N/A';
-
-    const aliasMatch = html.match(/<li>\s*<div class="icon">\s*<i class="far fa-clock"><\/i>\s*<\/div>\s*<span>\s*مدة العرض\s*:\s*<\/span>\s*<a[^>]*>\s*(\d+)\s*<\/a>/);
-    let alias = aliasMatch ? aliasMatch[1].trim() : 'N/A';
-
-    const airdateMatch = html.match(/<li>\s*<div class="icon">\s*<i class="far fa-calendar"><\/i>\s*<\/div>\s*<span>\s*تاريخ الاصدار\s*:\s*<\/span>\s*<a[^>]*?>\s*(\d{4})\s*<\/a>/);
-    let airdate = airdateMatch ? airdateMatch[1].trim() : 'N/A';
-
-    details.push({
-        description: description,
-        alias: alias,
-        airdate: airdate
-    });
-
-    console.log(details);
-    return details;
-}
-
-function extractEpisodes(html) {
-    const episodes = [];
-
-    const episodeRegex = /<a href="([^"]+)">\s*الحلقة\s*<em>(\d+)<\/em>\s*<\/a>/g;
-    let match;
-
-    while ((match = episodeRegex.exec(html)) !== null) {
-        const href = match[1].trim() + "/watch/";
-        const number = match[2].trim();
-
-        episodes.push({
-            href: href,
-            number: number
-        });
-    }
-
-    if (episodes.length > 0 && episodes[0].number !== "1") {
-        episodes.reverse();
-    }
-
-    console.log(episodes);
-    return episodes;
-}
-
-async function extractStreamUrl(html) {
-    if (!_0xCheck()) return 'https://files.catbox.moe/avolvc.mp4';
-
-    const serverMatch = html.match(/<li[^>]+data-watch="([^"]+mp4upload\.com[^"]+)"/);
-    const embedUrl = serverMatch ? serverMatch[1].trim() : 'N/A';
-
-    let streamUrl = "";
-
-    if (embedUrl !== 'N/A') {
-        const response = await soraFetch(embedUrl);
-        const fetchedHtml = await response.text();
-        
-        const streamMatch = fetchedHtml.match(/player\.src\(\{\s*type:\s*["']video\/mp4["'],\s*src:\s*["']([^"']+)["']\s*\}\)/i);
-        if (streamMatch) {
-            streamUrl = streamMatch[1].trim();
-        }
-    }
-
-    console.log(streamUrl);
-    return streamUrl;
 }
 
 function decodeHTMLEntities(text) {
