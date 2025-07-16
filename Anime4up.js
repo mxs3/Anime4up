@@ -7,20 +7,20 @@ async function searchResults(keyword) {
 
     const results = [];
 
-    const itemBlocks = html.match(/<div class="MovieItem">[\s\S]*?<h4>(.*?)<\/h4>[\s\S]*?<\/a>/g);
+    const itemBlocks = html.match(/<div class="anime-card-container">[\s\S]*?<\/a>/g);
     if (!itemBlocks) return JSON.stringify([]);
 
     for (const block of itemBlocks) {
       const hrefMatch = block.match(/<a href="([^"]+)"/);
-      const titleMatch = block.match(/<h4>(.*?)<\/h4>/);
-      const imgMatch = block.match(/background-image:\s*url\(([^)]+)\)/);
+      const imgMatch = block.match(/<img[^>]+src="([^"]+)"/);
+      const titleMatch = block.match(/<h3 class="anime-title">([^<]+)<\/h3>/);
 
-      if (hrefMatch && titleMatch && imgMatch) {
+      if (hrefMatch && imgMatch && titleMatch) {
         const href = hrefMatch[1].trim();
-        const rawTitle = decodeHTMLEntities(titleMatch[1].trim());
         const image = imgMatch[1].trim();
+        const rawTitle = decodeHTMLEntities(titleMatch[1].trim());
 
-        // نحتفظ بالعنوان الإنجليزي فقط إن وجد، وإلا نرجع الأصلي
+        // نستخدم العنوان الإنجليزي فقط لو موجود
         const englishTitle = rawTitle.match(/[a-zA-Z0-9:.\-()]+/g)?.join(' ') || rawTitle;
 
         results.push({ title: englishTitle.trim(), href, image });
