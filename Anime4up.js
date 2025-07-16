@@ -1,23 +1,28 @@
 async function searchResults(keyword) {
     const encoded = encodeURIComponent(keyword);
     const url = `https://4i.nxdwle.shop/?s=${encoded}`;
+
     const res = await fetchv2(url, {
         "User-Agent": "Mozilla/5.0 (iPhone; CPU iPhone OS 16_5 like Mac OS X)"
     });
 
     const html = await res.text();
-    if (!html || html.length < 100) {
-        console.log("⚠️ Empty or short HTML.");
+
+    console.log("🧾 HTML Length:", html.length);
+    console.log("📄 HTML Preview:", html.slice(0, 300));
+
+    if (!html || html.length < 500) {
+        console.log("❌ HTML is too short or empty");
         return [];
     }
 
     const results = [];
 
-    const matches = [...html.matchAll(/<div class="anime-card-container">([\s\S]*?)<\/div>\s*<\/div>/g)];
+    const itemBlocks = [...html.matchAll(/<div class="anime-card-container">([\s\S]*?)<\/div>\s*<\/div>/g)];
 
-    console.log("🧪 Matches found:", matches.length);
+    console.log("🧪 Matches found:", itemBlocks.length);
 
-    for (const match of matches) {
+    for (const match of itemBlocks) {
         const block = match[1];
 
         const title = block.match(/anime-card-title[^>]*>\s*<h3>\s*<a[^>]*>([^<]+)<\/a>/)?.[1];
@@ -31,6 +36,11 @@ async function searchResults(keyword) {
                 image: image.trim()
             });
         }
+    }
+
+    if (results.length === 0) {
+        console.log("⚠️ No search results extracted.");
+        return [];
     }
 
     console.log("✅ Extracted search results:", results.length);
