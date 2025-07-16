@@ -1,10 +1,19 @@
 async function searchResults(keyword) {
     const encoded = encodeURIComponent(keyword);
     const url = `https://4i.nxdwle.shop/?s=${encoded}`;
-    const res = await fetchv2(url);
+
+    const res = await fetchv2(url, {
+        "User-Agent": "Mozilla/5.0 (iPhone; CPU iPhone OS 16_5 like Mac OS X)"
+    });
     const html = await res.text();
 
+    if (!html || html.trim().length < 100) {
+        console.log("⚠️ Empty or protected response returned from Anime4up.");
+        return [];
+    }
+
     const results = [];
+
     const containerMatches = html.matchAll(/<div class="anime-card-container">([\s\S]*?)<\/div>\s*<\/div>/g);
 
     for (const match of containerMatches) {
@@ -23,6 +32,7 @@ async function searchResults(keyword) {
         }
     }
 
+    console.log("✅ Extracted search results:", results.length);
     return results;
 }
 
