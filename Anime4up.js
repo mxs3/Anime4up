@@ -1,32 +1,38 @@
-async function searchResults(keyword) {
-    const baseUrl = 'https://4i.nxdwle.shop'; // يمكن تغييره لأي دومين شغال
-    const searchUrl = `${baseUrl}/?s=${encodeURIComponent(keyword)}`;
-    
-    const html = await soraFetch(searchUrl);
-    if (!html) return [];
-
+function searchResults(html) {
     const results = [];
+    
+    // تأكد من أن html نص
+    if (typeof html !== 'string') return results;
 
-    // استخراج كروت الأنمي من نتائج البحث
-    const cards = html.match(/<div class="anime-card-container">[\s\S]*?<\/div>\s*<\/div>/g);
-    if (!cards) return results;
+    const blocks = html.match(/<div class="anime-card-container">[\s\S]*?<h3><a href="([^"]+)">([^<]+)<\/a><\/h3>/g);
+    
+    if (!blocks) return results;
 
-    for (const card of cards) {
-        const hrefMatch = card.match(/<a\s+href="([^"]+\/anime\/[^"]+)"/);
-        const titleMatch = card.match(/<div class="anime-card-title"[^>]*>\s*<h3>\s*<a[^>]*>([^<]+)<\/a>/);
-        const imgMatch = card.match(/<img[^>]+src="([^"]+)"/);
+    blocks.forEach(block => {
+        const href = block.match(/<a href="([^"]+)"/)?.[1];
+        const title = block.match(/<h3><a[^>]*>([^<]+)<\/a><\/h3>/)?.[1];
+        const img = block.match(/<img[^>]+src="([^"]+)"/)?.[1];
 
-        if (hrefMatch && titleMatch && imgMatch) {
-            const href = hrefMatch[1].trim();
-            const rawTitle = titleMatch[1].trim();
-            const title = decodeHTMLEntities(rawTitle);
-            const image = imgMatch[1].trim();
-
-            results.push({ title, href, image });
+        if (href && title && img) {
+            results.push({
+                title: decodeHTMLEntities(title.trim()),
+                href: href.trim(),
+                image: img.trim(),
+            });
         }
-    }
+    });
 
     return results;
+}
+
+function decodeHTMLEntities(text) {
+    return text
+        .replace(/&#(\d+);/g, (_, dec) => String.fromCharCode(dec))
+        .replace(/&quot;/g, '"')
+        .replace(/&amp;/g, '&')
+        .replace(/&apos;/g, "'")
+        .replace(/&lt;/g, '<')
+        .replace(/&gt;/g, '>');
 }
 
 // دالة fetch بديلة تدعم user-agent وتحاول مرتين
