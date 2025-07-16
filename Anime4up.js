@@ -1,50 +1,120 @@
-async function searchResults(keyword) {
-    const encoded = encodeURIComponent(keyword);
-    const url = `https://4i.nxdwle.shop/?s=${encoded}`;
-
-    const res = await fetchv2(url, {
-        "User-Agent": "Mozilla/5.0 (iPhone; CPU iPhone OS 16_5 like Mac OS X)"
-    });
-
+async function search(query) {
+  const searchUrl = `https://4i.nxdwle.shop/?s=${encodeURIComponent(query)}`;
+  try {
+    const res = await fetchv2(searchUrl);
     const html = await res.text();
+    return JSON.stringify(searchResults(html));
+  } catch (err) {
+    console.error("Search error:", err);
+    return JSON.stringify([]);
+  }
+}
 
-    console.log("🧾 HTML Length:", html.length);
-    console.log("📄 HTML Preview:", html.slice(0, 300));
+function searchResults(html) {
+  const results = [];
+  const itemBlocks = html.match(/<div class="anime-card-container">[\s\S]*?<\/a>/g);
+  if (!itemBlocks) return results;
 
-    if (!html || html.length < 500) {
-        console.log("❌ HTML is too short or empty");
-        return [];
+  itemBlocks.forEach(block => {
+    const hrefMatch = block.match(/<a href="([^"]+)"/);
+    const titleMatch = block.match(/<h3 class="anime-card-title">([^<]+)<\/h3>/);
+    const imgMatch = block.match(/<img[^>]+data-src="([^"]+)"/);
+
+    if (hrefMatch && titleMatch && imgMatch) {
+      const href = hrefMatch[1];
+      const title = titleMatch[1].trim();
+      const image = imgMatch[1];
+
+      results.push({ title, href, image });
     }
+  });
 
-    const results = [];
+  return results;
+}
 
-    const itemBlocks = [...html.matchAll(/<div class="anime-card-container">([\s\S]*?)<\/div>\s*<\/div>/g)];
+async function extractDetails(url) {
+  const res = await fetchv2(url);
+  const html = await res.text();
 
-    console.log("🧪 Matches found:", itemBlocks.length);
+  const descriptionMatch = html.match(/<div class="anime-details-info.*?<p>(.*?)<\/p>/s);
+  const description = descriptionMatch ? decodeHTMLEntities(descriptionMatch[1].trim()) : 'N/A';
 
-    for (const match of itemBlocks) {
-        const block = match[1];
+  const aliasMatch = html.match(/اسم الأنمي بالإنجليزي\s*<\/span>\s*:\s*(.*?)<\/li>/);
+  const aliases = aliasMatch ? decodeHTMLEntities(aliasMatch[1].trim()) : 'N/A';
 
-        const title = block.match(/anime-card-title[^>]*>\s*<h3>\s*<a[^>]*>([^<]+)<\/a>/)?.[1];
-        const href = block.match(/<a[^>]+href="([^"]+)"[^>]*class="overlay"/)?.[1];
-        const image = block.match(/<img[^>]+src="([^"]+)"/)?.[1];
+  const airdateMatch = html.match(/تاريخ الإصدار\s*<\/span>\s*:\s*(.*?)<\/li>/);
+  const airdate = airdateMatch ? decodeHTMLEntities(airdateMatch[1].trim()) : 'N/A';
 
-        if (title && href && image) {
-            results.push({
-                title: title.trim(),
-                href: href.trim(),
-                image: image.trim()
-            });
-        }
+  return JSON.stringify([{
+    description,
+    aliases,
+    airdate,
+  }]);
+}
+
+async function extractEpisodes(url) {
+  const res = await fetchv2(url);
+  const html = await res.text();
+  const episodes = [];
+
+  const matches = [...html.matchAll(/<a[^>]+href="([^"]+)"[^>]*class="ep-num">([^<]+)<\/a>/g)];
+
+  matches.forEach(match => {
+    const href = match[1];
+    const number = parseInt(match[2].replace(/\D/g, ''), 10) || 0;
+    episodes.push({ number, href });
+  });
+
+  return JSON.stringify(episodes);
+}
+
+async function extractStreamUrl(html) {
+  const multiStreams = { streams: [], subtitles: null };
+
+  try {
+    const serverMatch = html.match(/data-video="([^"]+)"/);
+    if (!serverMatch) return JSON.stringify(multiStreams);
+
+    const iframeUrl = serverMatch[1];
+    const response = await fetchv2(iframeUrl);
+    const iframeHtml = await response.text();
+
+    const qualities = extractQualities(iframeHtml);
+
+    if (qualities.length > 0) {
+      multiStreams.streams = qualities;
+      return JSON.stringify(multiStreams);
     }
+  } catch (err) {
+    console.error("Stream extraction error:", err);
+  }
 
-    if (results.length === 0) {
-        console.log("⚠️ No search results extracted.");
-        return [];
-    }
+  // fallback رابط احتياطي
+  multiStreams.streams.push({ quality: "480p", url: "https://files.catbox.moe/avolvc.mp4" });
+  return JSON.stringify(multiStreams);
+}
 
-    console.log("✅ Extracted search results:", results.length);
-    return results;
+function extractQualities(html) {
+  const sources = [];
+  const regex = /{file:"([^"]+)",label:"([^"]+)",type:"hls"}/g;
+  let match;
+  while ((match = regex.exec(html)) !== null) {
+    sources.push({
+      quality: match[2],
+      url: match[1]
+    });
+  }
+  return sources;
+}
+
+function decodeHTMLEntities(text) {
+  return text
+    .replace(/&#(\d+);/g, (_, dec) => String.fromCharCode(dec))
+    .replace(/&quot;/g, '"')
+    .replace(/&amp;/g, '&')
+    .replace(/&apos;/g, "'")
+    .replace(/&lt;/g, '<')
+    .replace(/&gt;/g, '>');
 }
 
 function decodeHTMLEntities(text) {
