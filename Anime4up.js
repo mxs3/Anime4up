@@ -1,37 +1,27 @@
-async function searchResults(keyword) {
-  try {
-    const encodedKeyword = encodeURIComponent(keyword);
-    const searchUrl = `https://4i.nxdwle.shop/?s=${encodedKeyword}`;
-    const response = await fetchv2(searchUrl);
-    const html = await response.text();
+function searchResults(html) {
+  const results = [];
 
-    const results = [];
+  const cards = html.match(/<div class="anime-card-container">[\s\S]*?<\/div>\s*<\/div>/g);
+  if (!cards) return results;
 
-    const itemBlocks = html.match(/<div class="anime-card-container">[\s\S]*?<\/a>/g);
-    if (!itemBlocks) return JSON.stringify([]);
+  cards.forEach(card => {
+    const hrefMatch = card.match(/<a href="([^"]+)" class="overlay">/);
+    const titleMatch = card.match(/<div class="anime-card-title"[^>]*>\s*<h3><a[^>]*>(.*?)<\/a><\/h3>/);
+    const imgMatch = card.match(/<img[^>]+src="([^"]+)"[^>]*>/);
 
-    for (const block of itemBlocks) {
-      const hrefMatch = block.match(/<a href="([^"]+)"/);
-      const imgMatch = block.match(/<img[^>]+src="([^"]+)"/);
-      const titleMatch = block.match(/<h3 class="anime-title">([^<]+)<\/h3>/);
+    if (hrefMatch && titleMatch && imgMatch) {
+      const href = hrefMatch[1].trim();
+      const title = decodeHTMLEntities(titleMatch[1].trim());
+      const image = imgMatch[1].trim();
 
-      if (hrefMatch && imgMatch && titleMatch) {
-        const href = hrefMatch[1].trim();
-        const image = imgMatch[1].trim();
-        const rawTitle = decodeHTMLEntities(titleMatch[1].trim());
-
-        // نستخدم العنوان الإنجليزي فقط لو موجود
-        const englishTitle = rawTitle.match(/[a-zA-Z0-9:.\-()]+/g)?.join(' ') || rawTitle;
-
-        results.push({ title: englishTitle.trim(), href, image });
+      // نتأكد إن الرابط فعلاً يشير لأنمي وليس مؤلف أو تصنيف
+      if (href.includes("/anime/")) {
+        results.push({ title, href, image });
       }
     }
+  });
 
-    return JSON.stringify(results);
-  } catch (err) {
-    console.error("Anime4up search error:", err);
-    return JSON.stringify([]);
-  }
+  return results;
 }
 
 function decodeHTMLEntities(text) {
