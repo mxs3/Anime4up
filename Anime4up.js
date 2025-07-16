@@ -1,32 +1,24 @@
 async function searchResults(keyword) {
   try {
-    const encoded = encodeURIComponent(keyword);
-    const searchUrl = `https://4i.nxdwle.shop/?s=${encoded}`;
+    const searchUrl = `https://4i.nxdwle.shop/?s=${encodeURIComponent(keyword)}`;
     const res = await fetchv2(searchUrl);
     const html = await res.text();
-    
+
     const results = [];
-    const regex = /<div class="anime-card-container">([\s\S]*?)<\/a>/g;
-    let match;
 
-    while ((match = regex.exec(html)) !== null) {
-      const block = match[1];
-      const urlMatch = block.match(/href="([^"]+)"/);
-      const titleMatch = block.match(/title="([^"]+)"/);
-      const imgMatch = block.match(/src="([^"]+)"/);
+    const matches = [...html.matchAll(/<a href="([^"]+)"[^>]*title="([^"]+)"[^>]*>[\s\S]*?<img[^>]+src="([^"]+)"/g)];
 
-      if (urlMatch && titleMatch && imgMatch) {
-        const href = urlMatch[1].trim();
-        const rawTitle = decodeHTMLEntities(titleMatch[1].trim());
-        const image = imgMatch[1].trim();
-        const cleanTitle = rawTitle.match(/[a-zA-Z0-9:.\-()]+/g)?.join(' ') || rawTitle;
+    for (const match of matches) {
+      const href = match[1];
+      const rawTitle = decodeHTMLEntities(match[2]);
+      const image = match[3];
+      const englishTitle = rawTitle.match(/[a-zA-Z0-9:.\-()]+/g)?.join(' ') || rawTitle;
 
-        results.push({
-          title: cleanTitle,
-          href,
-          image
-        });
-      }
+      results.push({
+        title: englishTitle.trim(),
+        href,
+        image
+      });
     }
 
     return JSON.stringify(results);
@@ -34,6 +26,16 @@ async function searchResults(keyword) {
     console.error('searchResults error:', err);
     return JSON.stringify([]);
   }
+}
+
+function decodeHTMLEntities(text) {
+  return text
+    .replace(/&#(\d+);/g, (_, dec) => String.fromCharCode(dec))
+    .replace(/&quot;/g, '"')
+    .replace(/&amp;/g, '&')
+    .replace(/&apos;/g, "'")
+    .replace(/&lt;/g, '<')
+    .replace(/&gt;/g, '>');
 }
 
 function decodeHTMLEntities(text) {
