@@ -1,30 +1,46 @@
-function searchResults(html) {
-  const results = [];
+async function searchResults(keyword) {
+  try {
+    const searchUrl = `https://4i.nxdwle.shop/?s=${encodeURIComponent(keyword)}`;
+    const res       = await fetchv2(searchUrl);
+    const html      = await res.text();
+    const results   = [];
 
-  const cards = html.match(/<div class="anime-card-container">[\s\S]*?<\/div>\s*<\/div>/g);
-  console.log("Total cards found:", cards?.length || 0);
-  if (!cards) return JSON.stringify(results);
+    // نجمع كل البطاقات التي تبدأ بـ anime-card-container
+    const cardRegex = /<div class="anime-card-container">([\s\S]*?)<\/div>\s*<\/div>/g;
+    let cardMatch;
 
-  cards.forEach(card => {
-    const hrefMatch = card.match(/<a href="([^"]+)" class="overlay">/);
-    const titleMatch = card.match(/<div class="anime-card-title"[^>]*>\s*<h3><a[^>]*>(.*?)<\/a><\/h3>/);
-    const imgMatch = card.match(/<img[^>]+src="([^"]+)"[^>]*>/);
+    while ((cardMatch = cardRegex.exec(html)) !== null) {
+      const card = cardMatch[1];
 
-    if (hrefMatch && titleMatch && imgMatch) {
-      const href = hrefMatch[1].trim();
-      const title = decodeHTMLEntities(titleMatch[1].trim());
-      const image = imgMatch[1].trim();
+      // الرابط داخل overlay
+      const hrefMatch  = card.match(/<a href="([^"]+)"\s+class="overlay"/);
+      // الصورة داخل <img src="...">
+      const imgMatch   = card.match(/<img[^>]+src="([^"]+)"/);
+      // العنوان داخل h3 > a
+      const titleMatch = card.match(/<h3>\s*<a[^>]*>([^<]+)<\/a>\s*<\/h3>/);
 
-      if (href.includes("/anime/")) {
-        results.push({ title, href, image });
+      if (hrefMatch && imgMatch && titleMatch) {
+        const href     = hrefMatch[1].trim();
+        const image    = imgMatch[1].trim();
+        const rawTitle = titleMatch[1].trim();
+        const title    = decodeHTMLEntities(rawTitle);
+
+        // نتأكد أنها بطاقة أنمي فعلية
+        if (href.includes("/anime/")) {
+          results.push({ title, href, image });
+        }
       }
     }
-  });
 
-  console.log("Results:", results);
-  return JSON.stringify(results);
+    // نرجع JSON string كما يتطلب Sora
+    return JSON.stringify(results);
+  } catch (err) {
+    console.error("Anime4up search error:", err);
+    return JSON.stringify([]);
+  }
 }
 
+// دالة مساعدة لفك ترميزات HTML
 function decodeHTMLEntities(text) {
   return text
     .replace(/&#(\d+);/g, (_, dec) => String.fromCharCode(dec))
