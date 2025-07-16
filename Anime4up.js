@@ -1,33 +1,34 @@
 async function searchResults(keyword) {
     const encoded = encodeURIComponent(keyword);
     const url = `https://4i.nxdwle.shop/?s=${encoded}`;
-
     const res = await fetchv2(url, {
         "User-Agent": "Mozilla/5.0 (iPhone; CPU iPhone OS 16_5 like Mac OS X)"
     });
-    const html = await res.text();
 
-    if (!html || html.trim().length < 100) {
-        console.log("⚠️ Empty or protected response returned from Anime4up.");
+    const html = await res.text();
+    if (!html || html.length < 100) {
+        console.log("⚠️ Empty or short HTML.");
         return [];
     }
 
     const results = [];
 
-    const containerMatches = html.matchAll(/<div class="anime-card-container">([\s\S]*?)<\/div>\s*<\/div>/g);
+    const matches = [...html.matchAll(/<div class="anime-card-container">([\s\S]*?)<\/div>\s*<\/div>/g)];
 
-    for (const match of containerMatches) {
+    console.log("🧪 Matches found:", matches.length);
+
+    for (const match of matches) {
         const block = match[1];
 
-        const titleMatch = block.match(/anime-card-title[^>]*>\s*<h3>\s*<a[^>]*>([^<]+)<\/a>/);
-        const urlMatch = block.match(/<a[^>]+href="([^"]+)"[^>]*class="overlay"/);
-        const imageMatch = block.match(/<img[^>]+src="([^"]+)"/);
+        const title = block.match(/anime-card-title[^>]*>\s*<h3>\s*<a[^>]*>([^<]+)<\/a>/)?.[1];
+        const href = block.match(/<a[^>]+href="([^"]+)"[^>]*class="overlay"/)?.[1];
+        const image = block.match(/<img[^>]+src="([^"]+)"/)?.[1];
 
-        if (titleMatch && urlMatch && imageMatch) {
+        if (title && href && image) {
             results.push({
-                title: titleMatch[1].trim(),
-                href: urlMatch[1].trim(),
-                image: imageMatch[1].trim()
+                title: title.trim(),
+                href: href.trim(),
+                image: image.trim()
             });
         }
     }
