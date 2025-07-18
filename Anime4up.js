@@ -112,46 +112,59 @@ async function extractDetails(url) {
 
 async function extractEpisodes(url) {
   const results = [];
+  const visitedPages = new Set();
 
   try {
-    const response = await fetchv2(url, {
-      headers: {
-        "User-Agent": "Mozilla/5.0",
-        "Referer": url
+    const fetchAndExtract = async (pageUrl) => {
+      if (visitedPages.has(pageUrl)) return;
+      visitedPages.add(pageUrl);
+
+      const res = await fetchv2(pageUrl, {
+        headers: {
+          "User-Agent": "Mozilla/5.0",
+          "Referer": pageUrl
+        }
+      });
+
+      const html = await res.text();
+
+      // تحقق من النوع: فيلم أو مسلسل
+      const typeMatch = html.match(/<div class="anime-info"><span>النوع:<\/span>\s*([^<]+)<\/div>/i);
+      const type = typeMatch ? typeMatch[1].trim().toLowerCase() : "";
+      if (type.includes("movie") || type.includes("فيلم")) {
+        results.push({ href: url, number: 1 });
+        return;
       }
-    });
 
-    const html = await response.text();
-
-    // ✅ التحقق من نوع العمل (فيلم ولا مسلسل)
-    const typeMatch = html.match(/<div class="anime-info"><span>النوع:<\/span>\s*([^<]+)<\/div>/i);
-    const type = typeMatch ? typeMatch[1].trim().toLowerCase() : "";
-
-    // ✅ لو فيلم: نرجع رابط واحد فقط
-    if (type.includes("movie") || type.includes("فيلم")) {
-      return JSON.stringify([{ href: url, number: 1 }]);
-    }
-
-    // ✅ لو مسلسل: نجيب كل الحلقات
-    const episodeRegex = /<div class="episodes-card-title">\s*<h3>\s*<a\s+href="([^"]+)">[^<]*الحلقة\s*(\d+)[^<]*<\/a>/gi;
-
-    let match;
-    while ((match = episodeRegex.exec(html)) !== null) {
-      const episodeUrl = match[1].trim();
-      const episodeNumber = parseInt(match[2].trim(), 10);
-
-      if (!isNaN(episodeNumber)) {
-        results.push({
-          href: episodeUrl,
-          number: episodeNumber
-        });
+      // استخراج الحلقات من الصفحة الحالية
+      const episodeRegex = /<div class="episodes-card-title">\s*<h3>\s*<a\s+href="([^"]+)">[^<]*الحلقة\s*(\d+)[^<]*<\/a>/gi;
+      let match;
+      while ((match = episodeRegex.exec(html)) !== null) {
+        const episodeUrl = match[1].trim();
+        const episodeNumber = parseInt(match[2].trim(), 10);
+        if (!isNaN(episodeNumber)) {
+          results.push({ href: episodeUrl, number: episodeNumber });
+        }
       }
-    }
 
-    // ✅ ترتيب الحلقات تصاعدي
+      // جلب روابط باقي الصفحات
+      const paginationRegex = /<a[^>]+href="([^"]+\/page\/\d+\/)"[^>]*>\d+<\/a>/gi;
+      let pageMatch;
+      while ((pageMatch = paginationRegex.exec(html)) !== null) {
+        const nextPageUrl = pageMatch[1].startsWith("http")
+          ? pageMatch[1]
+          : new URL(pageMatch[1], url).href;
+        await fetchAndExtract(nextPageUrl);
+      }
+    };
+
+    // نبدأ من الصفحة الأولى
+    await fetchAndExtract(url);
+
+    // ترتيب طبيعي
     results.sort((a, b) => a.number - b.number);
 
-    // ✅ fallback ذكي لو مفيش حلقات بس هو مش فيلم
+    // fallback
     if (results.length === 0) {
       return JSON.stringify([{ href: url, number: 1 }]);
     }
