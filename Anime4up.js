@@ -112,56 +112,78 @@ async function extractDetails(url) {
 
 async function extractEpisodes(url) {
   const results = [];
-  const visitedPages = new Set();
+  const visited = new Set();
 
   try {
-    const fetchAndExtract = async (pageUrl) => {
-      if (visitedPages.has(pageUrl)) return;
-      visitedPages.add(pageUrl);
-
+    // تابع لجلب الحلقات من صفحة واحدة
+    const fetchPage = async (pageUrl) => {
       const res = await fetchv2(pageUrl, {
         headers: {
           "User-Agent": "Mozilla/5.0",
-          "Referer": pageUrl
+          "Referer": url
         }
       });
 
       const html = await res.text();
 
-      // تحقق من النوع: فيلم أو مسلسل
+      // لو Movie، رجع حلقة واحدة فقط
       const typeMatch = html.match(/<div class="anime-info"><span>النوع:<\/span>\s*([^<]+)<\/div>/i);
-      const type = typeMatch ? typeMatch[1].trim().toLowerCase() : "";
+      const type = typeMatch ? typeMatch[1].toLowerCase() : "";
       if (type.includes("movie") || type.includes("فيلم")) {
-        results.push({ href: url, number: 1 });
-        return;
+        return [{ href: url, number: 1 }];
       }
 
-      // استخراج الحلقات من الصفحة الحالية
-      const episodeRegex = /<div class="episodes-card-title">\s*<h3>\s*<a\s+href="([^"]+)">[^<]*الحلقة\s*(\d+)[^<]*<\/a>/gi;
+      // استخرج الحلقات
+      const epRegex = /<div class="episodes-card-title">\s*<h3>\s*<a[^>]+href="([^"]+)"[^>]*>\s*الحلقة\s*(\d+)<\/a>/gi;
       let match;
-      while ((match = episodeRegex.exec(html)) !== null) {
-        const episodeUrl = match[1].trim();
-        const episodeNumber = parseInt(match[2].trim(), 10);
-        if (!isNaN(episodeNumber)) {
-          results.push({ href: episodeUrl, number: episodeNumber });
+      const localResults = [];
+      while ((match = epRegex.exec(html)) !== null) {
+        const href = match[1].trim();
+        const number = parseInt(match[2].trim());
+        if (!isNaN(number)) {
+          localResults.push({ href, number });
         }
       }
 
-      // جلب روابط باقي الصفحات
-      const paginationRegex = /<a[^>]+href="([^"]+\/page\/\d+\/)"[^>]*>\d+<\/a>/gi;
-      let pageMatch;
-      while ((pageMatch = paginationRegex.exec(html)) !== null) {
-        const nextPageUrl = pageMatch[1].startsWith("http")
-          ? pageMatch[1]
-          : new URL(pageMatch[1], url).href;
-        await fetchAndExtract(nextPageUrl);
-      }
+      return localResults;
     };
 
-    // نبدأ من الصفحة الأولى
-    await fetchAndExtract(url);
+    // ابدأ من الصفحة الأولى
+    const firstPageRes = await fetchv2(url, {
+      headers: {
+        "User-Agent": "Mozilla/5.0",
+        "Referer": url
+      }
+    });
+    const firstHtml = await firstPageRes.text();
 
-    // ترتيب طبيعي
+    // تحقق من النوع
+    const typeMatch = firstHtml.match(/<div class="anime-info"><span>النوع:<\/span>\s*([^<]+)<\/div>/i);
+    const type = typeMatch ? typeMatch[1].toLowerCase() : "";
+    if (type.includes("movie") || type.includes("فيلم")) {
+      return JSON.stringify([{ href: url, number: 1 }]);
+    }
+
+    // جلب الصفحة الأولى
+    const firstEpisodes = await fetchPage(url);
+    firstEpisodes.forEach(ep => results.push(ep));
+
+    // استخراج رقم آخر صفحة من pagination
+    const maxPageMatch = [...firstHtml.matchAll(/<a[^>]+href="[^"]+\/page\/(\d+)\/"[^>]*>/gi)];
+    const pages = maxPageMatch.map(m => parseInt(m[1])).filter(n => !isNaN(n));
+    const maxPage = Math.max(1, ...pages);
+
+    // باقي الصفحات
+    for (let i = 2; i <= maxPage; i++) {
+      const pageUrl = url.endsWith('/') ? `${url}page/${i}/` : `${url}/page/${i}/`;
+      if (visited.has(pageUrl)) continue;
+      visited.add(pageUrl);
+
+      const episodes = await fetchPage(pageUrl);
+      episodes.forEach(ep => results.push(ep));
+    }
+
+    // ترتيب طبيعي تصاعدي
     results.sort((a, b) => a.number - b.number);
 
     // fallback
@@ -170,7 +192,6 @@ async function extractEpisodes(url) {
     }
 
     return JSON.stringify(results);
-
   } catch (err) {
     console.error("extractEpisodes error:", err);
     return JSON.stringify([{ href: url, number: 1 }]);
