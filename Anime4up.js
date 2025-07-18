@@ -52,31 +52,60 @@ async function searchResults(keyword) {
 }
 
 // ✅ دالة استخراج التفاصيل
-function extractDetails(html) {
-  const details = {
-    description: "غير متوفر",
-    airdate: "غير معروف",
-    genres: []
-  };
+async function extractDetails(url) {
+  try {
+    const response = await fetchv2(url); // No headers needed
+    const html = await response.text();
 
-  // الوصف
-  const descriptionMatch = html.match(/<p class="anime-story">([\s\S]*?)<\/p>/);
-  if (descriptionMatch && descriptionMatch[1]) {
-    details.description = decodeHTMLEntities(descriptionMatch[1].trim());
+    // Fallback values
+    let description = "لا يوجد وصف متاح.";
+    let airdate = "غير معروف";
+    let aliases = "غير مصنف";
+
+    // ✅ الوصف
+    const descMatch = html.match(/<p class="anime-story">([\s\S]*?)<\/p>/i);
+    if (descMatch) {
+      const rawDescription = descMatch[1].trim();
+      if (rawDescription.length > 0) {
+        description = decodeHTMLEntities(rawDescription);
+      }
+    }
+
+    // ✅ التصنيفات
+    const genresMatch = html.match(/<ul class="anime-genres">([\s\S]*?)<\/ul>/i);
+    if (genresMatch) {
+      const genreItems = [...genresMatch[1].matchAll(/<a[^>]*>([^<]+)<\/a>/g)];
+      const genres = genreItems.map(m => decodeHTMLEntities(m[1].trim()));
+      if (genres.length > 0) {
+        aliases = genres.join(", ");
+      }
+    }
+
+    // ✅ تاريخ العرض
+    const airdateMatch = html.match(/<span>\s*بداية العرض:\s*<\/span>\s*(\d{4})/i);
+    if (airdateMatch) {
+      const extracted = airdateMatch[1].trim();
+      if (/^\d{4}$/.test(extracted)) {
+        airdate = extracted;
+      }
+    }
+
+    return JSON.stringify([
+      {
+        description,
+        aliases,
+        airdate: `سنة العرض: ${airdate}`
+      }
+    ]);
+
+  } catch (error) {
+    console.error("extractDetails error:", error.message);
+    return JSON.stringify([
+      {
+        description: "تعذر تحميل الوصف.",
+        aliases: "غير مصنف",
+        airdate: "سنة العرض: غير معروفة"
+      }
+    ]);
   }
-
-  // سنة العرض
-  const airdateMatch = html.match(/<span>\s*بداية العرض:\s*<\/span>\s*([0-9]+)/);
-  if (airdateMatch && airdateMatch[1]) {
-    details.airdate = airdateMatch[1].trim();
-  }
-
-  // التصنيفات
-  const genresBlockMatch = html.match(/<ul class="anime-genres">([\s\S]*?)<\/ul>/);
-  if (genresBlockMatch) {
-    const genreMatches = [...genresBlockMatch[1].matchAll(/<a[^>]*>([^<]+)<\/a>/g)];
-    details.genres = genreMatches.map(m => decodeHTMLEntities(m[1].trim()));
-  }
-
-  return JSON.stringify(details);
 }
