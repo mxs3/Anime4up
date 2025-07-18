@@ -179,3 +179,92 @@ async function extractEpisodes(url) {
     return JSON.stringify([{ href: url, number: 1 }]);
   }
 }
+
+async function extractStreamUrls(url) {
+  try {
+    const response = await fetchv2(url, {
+      headers: {
+        "User-Agent": "Mozilla/5.0",
+        "Referer": url
+      }
+    });
+
+    const html = await response.text();
+    const servers = [];
+
+    // ✅ Regex 1: من <ul class="nav nav-tabs" ...>
+    const navRegex = /<li[^>]*>\s*<a[^>]+data-ep-url="([^"]+)"[^>]*>([^<]+)<\/a>/gi;
+    let match;
+    while ((match = navRegex.exec(html)) !== null) {
+      const rawUrl = match[1].startsWith("//") ? "https:" + match[1] : match[1];
+      const label = match[2].toLowerCase();
+
+      if (rawUrl.includes("mp4upload")) {
+        if (label.includes("fhd")) servers.push({ url: rawUrl, quality: "FHD" });
+        else if (label.includes("hd")) servers.push({ url: rawUrl, quality: "HD" });
+        else if (label.includes("sd")) servers.push({ url: rawUrl, quality: "SD" });
+        else servers.push({ url: rawUrl, quality: "SD" }); // fallback label
+      }
+
+      if (rawUrl.includes("vidmoly")) {
+        if (label.includes("fhd")) servers.push({ url: rawUrl, quality: "FHD" });
+        else if (label.includes("hd")) servers.push({ url: rawUrl, quality: "HD" });
+        else if (label.includes("sd")) servers.push({ url: rawUrl, quality: "SD" });
+        else servers.push({ url: rawUrl, quality: "SD" });
+      }
+    }
+
+    // ✅ Regex 2: من <ul class="quality-list"> في <div class="panel-body">
+    const qualityRegex = /<li>\s*<a[^>]+href="([^"]+)"[^>]*>\s*(?:mp4upload|vidmoly)[^<]*<\/a>/gi;
+    const sectionRegex = /<li>\s*الجودة\s*(.*?)\s*<\/li>/gi;
+    let lastQuality = "SD"; // default
+    let sectionMatch;
+    let htmlParts = html.split(/<ul class="quality-list">/gi);
+    for (let i = 1; i < htmlParts.length; i++) {
+      const part = htmlParts[i];
+      sectionMatch = /<li>\s*الجودة\s*(.*?)\s*<\/li>/i.exec(part);
+      if (sectionMatch) lastQuality = sectionMatch[1].toUpperCase().trim();
+
+      let subMatch;
+      while ((subMatch = qualityRegex.exec(part)) !== null) {
+        const link = subMatch[1].trim();
+        if (link.includes("mp4upload") || link.includes("vidmoly")) {
+          servers.push({ url: link, quality: lastQuality });
+        }
+      }
+    }
+
+    // ✅ ترتيب حسب FHD > HD > SD
+    servers.sort((a, b) => {
+      const qualityOrder = { "FHD": 3, "HD": 2, "SD": 1 };
+      return (qualityOrder[b.quality] || 0) - (qualityOrder[a.quality] || 0);
+    });
+
+    // ✅ fallback
+    if (servers.length === 0) {
+      return {
+        streams: [
+          { url: "https://files.catbox.moe/avolvc.mp4", name: "SD" }
+        ],
+        subtitles: null
+      };
+    }
+
+    return {
+      streams: servers.map(s => ({
+        url: s.url,
+        name: s.quality
+      })),
+      subtitles: null
+    };
+
+  } catch (err) {
+    console.error("extractStreamUrls error:", err);
+    return {
+      streams: [
+        { url: "https://files.catbox.moe/avolvc.mp4", name: "SD" }
+      ],
+      subtitles: null
+    };
+  }
+}
