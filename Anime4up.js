@@ -56,30 +56,30 @@ function decodeHTMLEntities(text) {
 }
 
 function extractDetails(html) {
-  const title = decodeHTMLEntities(html.match(/<h1 class="anime-details-title">(.*?)<\/h1>/)?.[1] || '');
-  const description = decodeHTMLEntities(html.match(/<p class="anime-story">(.*?)<\/p>/)?.[1] || '');
-  const poster = html.match(/<div class="anime-thumbnail">\s*<img[^>]+src="([^"]+)"/)?.[1] || '';
-  const type = html.match(/<span>النوع:<\/span>\s*<a[^>]*>(.*?)<\/a>/)?.[1] || '';
-  const status = html.match(/<span>حالة الأنمي:<\/span>\s*<a[^>]*>(.*?)<\/a>/)?.[1] || '';
-  const releaseDate = html.match(/<span>بداية العرض:<\/span>\s*([^<]+)/)?.[1]?.trim() || '';
-  const duration = html.match(/<span>مدة الحلقة:<\/span>\s*([^<]+)/)?.[1]?.trim() || '';
-  const totalEpisodes = html.match(/<span>عدد الحلقات:<\/span>\s*([^<]+)/)?.[1]?.trim() || '';
-  const season = html.match(/<span>الموسم:<\/span>\s*<a[^>]*>(.*?)<\/a>/)?.[1] || '';
-  const source = html.match(/<span>المصدر:<\/span>\s*([^<]+)/)?.[1]?.trim() || '';
-
-  // استخراج التصنيفات
-  const genres = [];
-  const genreList = html.match(/<ul class="anime-genres">([\s\S]*?)<\/ul>/);
-  if (genreList) {
-    const liMatches = [...genreList[1].matchAll(/<li>\s*<a[^>]*>(.*?)<\/a>\s*<\/li>/g)];
-    for (const match of liMatches) {
-      genres.push(match[1].trim());
-    }
+  function extract(regex, group = 1) {
+    const match = html.match(regex);
+    return match ? decodeHTMLEntities(match[group]) : '';
   }
 
-  // روابط إضافية
-  const malId = html.match(/<a[^>]+href="(https:\/\/myanimelist\.net\/anime\/[^"]+)"[^>]*anime-mal/)?.[1] || '';
-  const trailer = html.match(/<a[^>]+href="(https:\/\/youtu\.be\/[^"]+)"[^>]*anime-trailer/)?.[1] || '';
+  function extractList(regex) {
+    const matches = [...html.matchAll(regex)];
+    return matches.map(m => decodeHTMLEntities(m[1].trim()));
+  }
+
+  const title = extract(/<h1 class="anime-details-title">(.*?)<\/h1>/);
+  const description = extract(/<p class="anime-story">(.*?)<\/p>/);
+  const poster = extract(/<div class="anime-thumbnail">\s*<img[^>]+src="([^"]+)"/);
+  const type = extract(/<span>النوع:<\/span>\s*<a[^>]*>(.*?)<\/a>/);
+  const status = extract(/<span>حالة الأنمي:<\/span>\s*<a[^>]*>(.*?)<\/a>/);
+  const releaseDate = extract(/<span>بداية العرض:<\/span>\s*([^<]+)/);
+  const duration = extract(/<span>مدة الحلقة:<\/span>\s*([^<]+)/);
+  const totalEpisodes = extract(/<span>عدد الحلقات:<\/span>\s*([^<]+)/);
+  const season = extract(/<span>الموسم:<\/span>\s*<a[^>]*>(.*?)<\/a>/);
+  const source = extract(/<span>المصدر:<\/span>\s*([^<]+)/);
+
+  const genres = extractList(/<ul class="anime-genres">[\s\S]*?<li>\s*<a[^>]*>(.*?)<\/a>\s*<\/li>/g);
+  const malId = extract(/<a[^>]+href="(https:\/\/myanimelist\.net\/anime\/[^"]+)"[^>]*class="anime-mal"/);
+  const trailer = extract(/<a[^>]+href="(https:\/\/youtu\.be\/[^"]+)"[^>]*class="anime-trailer"/);
 
   return JSON.stringify({
     title,
