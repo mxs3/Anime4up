@@ -1,50 +1,47 @@
 async function searchResults(keyword) {
-  try {
-    const url = `https://anime4up.rest/?s=${encodeURIComponent(keyword)}`;
-    const res = await fetchv2(url, {
-      headers: {
-        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)"
-      }
-    });
+    const base = "https://anime4up.rest";
+    const searchUrl = `${base}/?s=${encodeURIComponent(keyword)}`;
 
-    const html = await res.text();
+    try {
+        const response = await fetchv2(searchUrl);
+        const html = await response.text();
 
-    const results = [];
-    const pattern = /<div class="anime-card">([\s\S]*?)<\/div>\s*<\/div>/g;
-    let match;
+        const results = [];
+        const cardRegex = /<div class="anime-card[^"]*">([\s\S]*?)<\/div>\s*<\/div>/g;
+        let match;
 
-    while ((match = pattern.exec(html)) !== null) {
-      const card = match[1];
+        while ((match = cardRegex.exec(html)) !== null) {
+            const block = match[1];
 
-      const linkMatch = card.match(/<a[^>]+href="([^"]+)"/);
-      const titleMatch = card.match(/<div class="anime-title">([^<]+)<\/div>/);
-      const imageMatch = card.match(/<img[^>]+src="([^"]+)"/);
+            const urlMatch = block.match(/<a\s+href="([^"]+)"/);
+            const titleMatch = block.match(/<div class="anime-title">([^<]+)<\/div>/);
+            const imgMatch = block.match(/<img[^>]*src="([^"]+)"/);
 
-      const link = linkMatch ? linkMatch[1] : null;
-      const title = titleMatch ? titleMatch[1].trim() : null;
-      const image = imageMatch ? imageMatch[1] : null;
+            const url = urlMatch?.[1]?.trim();
+            const titleRaw = titleMatch?.[1]?.trim() ?? '';
+            const image = imgMatch?.[1]?.trim() ?? '';
 
-      if (link && title) {
-        results.push({
-          title,
-          url: link,
-          image: image || ""
-        });
-      }
+            const title = decodeHTMLEntities(titleRaw);
+
+            if (url && title && !url.includes("/category/")) {
+                results.push({ title, image, url });
+            }
+        }
+
+        return results;
+    } catch (err) {
+        console.log("Anime4up search error:", err);
+        return [];
     }
-
-    return results;
-  } catch (err) {
-    return [];
-  }
 }
 
+// مرفق: دالة المساعدة لفك ترميز HTML
 function decodeHTMLEntities(text) {
-  return text
-    .replace(/&#(\d+);/g, (_, dec) => String.fromCharCode(dec))
-    .replace(/&quot;/g, '"')
-    .replace(/&amp;/g, '&')
-    .replace(/&apos;/g, "'")
-    .replace(/&lt;/g, '<')
-    .replace(/&gt;/g, '>');
+    return text
+        .replace(/&#(\d+);/g, (_, dec) => String.fromCharCode(dec))
+        .replace(/&quot;/g, '"')
+        .replace(/&amp;/g, '&')
+        .replace(/&apos;/g, "'")
+        .replace(/&lt;/g, '<')
+        .replace(/&gt;/g, '>');
 }
