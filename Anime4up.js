@@ -1,33 +1,41 @@
 async function searchResults(keyword) {
-  const domain = "https://4i.nxdwle.shop"; // أو rest أو bond
-  const url = `${domain}/wp-admin/admin-ajax.php`;
-  const body = `action=ts_ac_do_search&ts_ac_query=${encodeURIComponent(keyword)}`;
+    const multiDomains = [
+        "https://4i.nxdwle.shop",
+        "https://anime4up.rest",
+        "https://anime4up.bond"
+    ];
 
-  const res = await fetchv2(url, {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/x-www-form-urlencoded'
-    },
-    body: body
-  });
+    for (const domain of multiDomains) {
+        try {
+            const searchUrl = `${domain}/?s=${encodeURIComponent(keyword)}`;
+            const res = await fetchv2(searchUrl);
+            const html = await res.text();
 
-  const html = res || '';
-  const $ = cheerio.load(html);
-  const results = [];
+            const $ = cheerio.load(html);
+            const results = [];
 
-  $('li a').each((i, el) => {
-    const title = decodeHTMLEntities($(el).text().trim());
-    const href = $(el).attr('href');
-    if (href && title) {
-      results.push({
-        title,
-        href: href.startsWith("http") ? href : domain + href,
-        image: `${domain}/wp-content/themes/anime/images/logo.png`
-      });
+            $(".anime-card").each((i, el) => {
+                const link = $(el).find("a").attr("href");
+                const title = $(el).find(".anime-title").text().trim();
+                const poster = $(el).find("img").attr("src");
+
+                if (link && title) {
+                    results.push({
+                        title: title,
+                        url: link,
+                        image: poster || ""
+                    });
+                }
+            });
+
+            if (results.length > 0) return results;
+
+        } catch (e) {
+            // جرب الدومين اللي بعده
+        }
     }
-  });
 
-  return results;
+    return []; // لو مفيش نتائج في أي دومين
 }
 
 function decodeHTMLEntities(text) {
