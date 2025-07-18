@@ -114,17 +114,20 @@ async function extractEpisodes(url) {
   const results = [];
 
   try {
-    const response = await fetchV2(url); // استخدم fetchV2 علشان متوافق مع Sora
+    const response = await fetchV2(url); // متوافق مع سورا
     const html = response;
 
+    // استخراج الحلقات
     const episodeRegex = /<a[^>]+href="([^"]+\/episode\/[^"]+)"[^>]*>[\s\S]*?الحلقة\s*(\d+)<\/a>/g;
-
     let match;
+    const seen = new Set(); // منع تكرار الروابط
+
     while ((match = episodeRegex.exec(html)) !== null) {
       const episodeUrl = match[1].trim();
       const episodeNumber = parseInt(match[2].trim(), 10);
 
-      if (!isNaN(episodeNumber)) {
+      if (!isNaN(episodeNumber) && !seen.has(episodeUrl)) {
+        seen.add(episodeUrl);
         results.push({
           href: episodeUrl,
           number: episodeNumber
@@ -135,21 +138,26 @@ async function extractEpisodes(url) {
     // ✅ ترتيب طبيعي
     results.sort((a, b) => a.number - b.number);
 
-    // ✅ تمييز بين الفيلم والمسلسل
+    // ✅ تحليل نوع المحتوى
     if (results.length === 0) {
-      // مش مسلسل، غالبًا فيلم أو حلقة واحدة فقط
+      // لا يوجد أي روابط حلقات -> fallback لفيلم
       return JSON.stringify([{ href: url, number: 1 }]);
     }
 
-    // لو فيه بس حلقة واحدة ورقمها 1 أو 0 (غالبًا فيلم)، اعتبره برضو حلقة واحدة فقط
-    if (results.length === 1 && (results[0].number === 1 || results[0].number === 0)) {
-      return JSON.stringify([{ href: results[0].href || url, number: 1 }]);
+    if (results.length === 1) {
+      const epNum = results[0].number;
+
+      // لو رقمها 0 أو 1، غالباً فيلم مش مسلسل
+      if (epNum === 0 || epNum === 1) {
+        return JSON.stringify([{ href: results[0].href || url, number: 1 }]);
+      }
     }
 
+    // ✅ مسلسل حقيقي
     return JSON.stringify(results);
 
   } catch (err) {
     console.error("extractEpisodes error:", err);
-    return JSON.stringify([{ href: url, number: 1 }]);
+    return JSON.stringify([{ href: url, number: 1 }]); // fallback في حالة فشل
   }
 }
