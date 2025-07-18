@@ -114,14 +114,8 @@ async function extractEpisodes(url) {
   const results = [];
 
   try {
-    const response = await soraFetch(url, {
-      headers: {
-        "User-Agent": "Sora-Extension",
-        "Referer": url
-      }
-    });
-
-    const html = await response.text();
+    const response = await fetchV2(url); // استخدم fetchV2 علشان متوافق مع Sora
+    const html = response;
 
     const episodeRegex = /<a[^>]+href="([^"]+\/episode\/[^"]+)"[^>]*>[\s\S]*?الحلقة\s*(\d+)<\/a>/g;
 
@@ -138,19 +132,24 @@ async function extractEpisodes(url) {
       }
     }
 
-    // ✅ ترتيب طبيعي تصاعدي
+    // ✅ ترتيب طبيعي
     results.sort((a, b) => a.number - b.number);
 
-    // ✅ fallback لو مفيش أي حلقة
+    // ✅ تمييز بين الفيلم والمسلسل
     if (results.length === 0) {
+      // مش مسلسل، غالبًا فيلم أو حلقة واحدة فقط
       return JSON.stringify([{ href: url, number: 1 }]);
+    }
+
+    // لو فيه بس حلقة واحدة ورقمها 1 أو 0 (غالبًا فيلم)، اعتبره برضو حلقة واحدة فقط
+    if (results.length === 1 && (results[0].number === 1 || results[0].number === 0)) {
+      return JSON.stringify([{ href: results[0].href || url, number: 1 }]);
     }
 
     return JSON.stringify(results);
 
   } catch (err) {
     console.error("extractEpisodes error:", err);
-    // fallback في حال حصل خطأ
     return JSON.stringify([{ href: url, number: 1 }]);
   }
 }
