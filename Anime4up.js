@@ -109,3 +109,63 @@ async function extractDetails(url) {
     ]);
   }
 }
+
+async function extractEpisodes(url) {
+  try {
+    const response = await soraFetch(url);
+    const html = await response.text();
+
+    const episodes = [];
+
+    // لو في مواسم (روابط التنقل بين المواسم)
+    const seasonUrls = [];
+    const seasonRegex = /<div class="seasonDiv[^"]*"\s+onclick="window\.location\.href\s*=\s*'\/\?p=(\d+)'"/g;
+    let seasonMatch;
+    while ((seasonMatch = seasonRegex.exec(html)) !== null) {
+      seasonUrls.push(`${DECODED.BASE}/?p=${seasonMatch[1]}`);
+    }
+
+    // regex لتجميع الحلقات
+    const episodeRegex = /<a[^>]*href="([^"]+)"[^>]*>\s*الحلقة\s+(\d+)\s*<\/a>/gi;
+
+    // في حالة مفيش مواسم
+    if (seasonUrls.length === 0) {
+      const matches = html.matchAll(episodeRegex);
+      for (const match of matches) {
+        episodes.push({
+          number: parseInt(match[2]),
+          href: match[1]
+        });
+      }
+    } else {
+      // في حالة وجود مواسم
+      const seasonHtmls = await Promise.all(
+        seasonUrls.map(async (link) => {
+          const res = await soraFetch(link);
+          return typeof res.text === 'function' ? await res.text() : res;
+        })
+      );
+
+      for (const seasonHtml of seasonHtmls) {
+        const matches = seasonHtml.matchAll(episodeRegex);
+        for (const match of matches) {
+          episodes.push({
+            number: parseInt(match[2]),
+            href: match[1]
+          });
+        }
+      }
+    }
+
+    // fallback لو مفيش ولا حلقة
+    if (episodes.length === 0 && /\/(movies|anime-movies|asian-movies|dubbed-movies)\//.test(url)) {
+      episodes.push({ number: 1, href: url });
+    }
+
+    return JSON.stringify(episodes);
+
+  } catch (error) {
+    console.error("extractEpisodes failed:", error);
+    return JSON.stringify([]);
+  }
+}
