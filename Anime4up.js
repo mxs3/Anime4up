@@ -1,30 +1,25 @@
-async function searchResults(keyword) {
-    const searchUrl = `https://4s.qerxam.shop/?search_param=animes&s=${encodeURIComponent(keyword)}`;
-    
-    const response = await fetchv2(searchUrl, {
-        headers: {
-            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)",
-            "Accept": "text/html",
-        }
+const cheerio = require('cheerio');
+
+async function searchResults(query) {
+  const searchUrl = `https://4s.qerxam.shop/?search_param=animes&s=${encodeURIComponent(query)}`;
+  const html = await fetchv2(searchUrl);
+  const $ = cheerio.load(html);
+  const results = [];
+
+  $('.cat-post-details h2 a').each((_, el) => {
+    const title = $(el).text().trim();
+    const url = $(el).attr('href');
+
+    // تجاهل النتائج اللي روابطها فيها author أو category
+    if (url.includes('/author/') || url.includes('/category/')) return;
+
+    results.push({
+      title,
+      url,
     });
-    
-    const html = await response.text();
-    const $ = cheerio.load(html);
+  });
 
-    const results = [];
-
-    $('h2 > a').each((i, el) => {
-        const title = $(el).text().trim();
-        const url = $(el).attr('href');
-        if (url.includes('/episode/')) { // تأكد إننا بنتعامل مع حلقات
-            results.push({
-                title,
-                url
-            });
-        }
-    });
-
-    return results;
+  return results;
 }
 
 // دالة لفك ترميز HTML
