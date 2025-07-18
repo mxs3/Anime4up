@@ -14,7 +14,5 @@
   "searchBaseUrl": "https://4i.nxdwle.shop/?s=%s",
   "scriptUrl": "https://raw.githubusercontent.com/mxs3/Anime4up/refs/heads/main/Anime4up.js",
   "type": "anime",
-  "asyncJS": true,
   "streamAsyncJS": true,
-  "softsub": false
 }
