@@ -1,28 +1,32 @@
 async function searchResults(keyword) {
     try {
-        const searchUrl = `https://4s.qerxam.shop/?search_param=animes&s=${encodeURIComponent(keyword)}`;
-        const res = await fetchv2(searchUrl);
-        const html = await res.text();
+        const query = encodeURIComponent(keyword);
+        const searchUrl = `https://4s.qerxam.shop/?search_param=animes&s=${query}`;
+        const res = await fetchv2(searchUrl, {
+            headers: {
+                "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)"
+            }
+        });
 
+        const html = await res.text();
         const results = [];
 
-        const itemRegex = /<h2><a href="(https:\/\/4s\.qerxam\.shop\/[^"]+)">([^<]+)<\/a><\/h2>[\s\S]+?<img[^>]+src="([^"]+)"[^>]*>/g;
+        const regex = /<h2><a href="([^"]+)">([^<]+)<\/a><\/h2>[\s\S]*?<img[^>]*src="([^"]+)"/g;
         let match;
 
-        while ((match = itemRegex.exec(html)) !== null) {
-            const url = match[1].trim();
-            const title = decodeHTMLEntities(match[2].trim());
+        while ((match = regex.exec(html)) !== null) {
+            const href = match[1].trim();
+            const title = match[2].trim();
             const image = match[3].trim();
 
-            // استبعاد نتائج المؤلفين أو التصنيفات
-            if (!url.includes("/author/") && !url.includes("/category/")) {
-                results.push({ title, url, image });
+            if (href && title) {
+                results.push({ title, href, image });
             }
         }
 
         return results;
     } catch (err) {
-        console.error("Search error:", err);
+        console.log("search error:", err);
         return [];
     }
 }
