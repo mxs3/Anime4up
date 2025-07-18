@@ -181,81 +181,86 @@ async function extractEpisodes(url) {
 }
 
 async function extractStreamUrl(url) {
-  const multiStreams = { streams: [], subtitles: null };
+  const result = {
+    streams: [],
+    subtitles: null
+  };
 
   try {
-    const response = await fetchv2(url, {
+    const headers = {
       headers: {
-        "User-Agent": "Mozilla/5.0",
-        "Referer": url
+        'User-Agent': 'Mozilla/5.0',
+        'Referer': url
       }
-    });
+    };
 
-    const html = await response.text();
+    const html = await fetchv2(url, headers).then(res => res.text());
 
-    const matches = [];
-
-    // ✅ MP4UPLOAD
-    const mp4uploadRegex = /https?:\/\/(?:www\.)?mp4upload\.com\/(?:embed-)?([a-zA-Z0-9]+)/gi;
+    // ✅ استخراج روابط السيرفرات من صفحة الحلقة
+    const serverRegex = /<a[^>]+data-ep-url="([^"]+)"[^>]*>([^<]+)<\/a>/gi;
+    const servers = [];
     let match;
-    while ((match = mp4uploadRegex.exec(html)) !== null) {
-      const id = match[1];
-      let quality = "unknown";
-
-      if (html.includes("FHD")) quality = "FHD";
-      else if (html.includes("HD")) quality = "HD";
-      else if (html.includes("SD")) quality = "SD";
-
-      matches.push({
-        url: `https://www.mp4upload.com/embed-${id}.html`,
-        quality
-      });
+    while ((match = serverRegex.exec(html)) !== null) {
+      const link = match[1].startsWith("//") ? "https:" + match[1] : match[1];
+      const label = match[2].toLowerCase().trim();
+      servers.push({ link, label });
     }
 
-    // ✅ VIDMOLY
-    const vidmolyRegex = /https?:\/\/(?:www\.)?vidmoly\.(?:to|me|tv|net)\/(?:embed-|w\/)?([a-zA-Z0-9]+)/gi;
-    while ((match = vidmolyRegex.exec(html)) !== null) {
-      const id = match[1];
-      let quality = "unknown";
+    // ✅ معالجة كل سيرفر mp4upload أو vidmoly فقط
+    for (const server of servers) {
+      const { link, label } = server;
 
-      if (html.includes("FHD")) quality = "FHD";
-      else if (html.includes("HD")) quality = "HD";
-      else if (html.includes("SD")) quality = "SD";
+      // 🎥 mp4upload extractor
+      if (link.includes("mp4upload.com")) {
+        try {
+          const page = await fetchv2(link, headers).then(r => r.text());
+          const match = page.match(/player\.src\(\{\s*file:\s*['"]([^'"]+)['"]/);
+          if (match && match[1]) {
+            result.streams.push({
+              url: match[1],
+              quality: label.includes("fhd") ? "FHD" :
+                       label.includes("sd") ? "SD" :
+                       label.includes("hd") ? "HD" : "Auto"
+            });
+          }
+        } catch (e) {}
+      }
 
-      matches.push({
-        url: `https://vidmoly.to/embed-${id}.html`,
-        quality
-      });
+      // 🎥 vidmoly extractor
+      if (link.includes("vidmoly")) {
+        try {
+          const page = await fetchv2(link, headers).then(r => r.text());
+          const match = page.match(/sources:\s*\[\s*\{file:\s*["']([^"']+)["']/i);
+          if (match && match[1]) {
+            result.streams.push({
+              url: match[1],
+              quality: label.includes("fhd") ? "FHD" :
+                       label.includes("sd") ? "SD" :
+                       label.includes("hd") ? "HD" : "Auto"
+            });
+          }
+        } catch (e) {}
+      }
     }
 
-    // ✅ تنظيم النتائج
-    for (const m of matches) {
-      multiStreams.streams.push({
-        file: m.url,
-        quality: m.quality,
-        type: "embed"
-      });
-    }
-
-    // ✅ fallback ثابت لو مفيش ولا سيرفر
-    if (multiStreams.streams.length === 0) {
-      multiStreams.streams.push({
-        file: "https://files.catbox.moe/avolvc.mp4",
+    // ✅ fallback في حالة مفيش أي stream
+    if (result.streams.length === 0) {
+      result.streams.push({
+        url: url,
         quality: "480p",
-        type: "mp4"
+        fallback: true
       });
     }
 
-    return multiStreams;
+    return result;
 
   } catch (err) {
     console.error("extractStreamUrl error:", err);
-
     return {
       streams: [{
-        file: "https://files.catbox.moe/avolvc.mp4",
+        url: url,
         quality: "480p",
-        type: "mp4"
+        fallback: true
       }],
       subtitles: null
     };
