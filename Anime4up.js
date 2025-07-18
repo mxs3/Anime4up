@@ -1,33 +1,34 @@
 async function searchResults(keyword) {
-    const domains = [
+    const multiDomains = [
         "https://4i.nxdwle.shop",
         "https://anime4up.rest",
         "https://anime4up.bond"
     ];
 
-    for (const domain of domains) {
+    for (const domain of multiDomains) {
         try {
-            const url = `${domain}/?s=${encodeURIComponent(keyword)}`;
-            const res = await fetchv2(url);
+            const searchUrl = domain.trim().replace(/\/+$/, '') + "/?s=" + encodeURIComponent(keyword);
+            console.log("Trying URL:", searchUrl);  // ✅ دي مهمة
+
+            const res = await fetchv2(searchUrl);
             const html = await res.text();
 
-            // تأكد من وجود نتيجة HTML
-            if (!html || html.trim() === "") continue;
+            const parser = new DOMParser();
+            const doc = parser.parseFromString(html, "text/html");
 
-            const doc = new DOMParser().parseFromString(html, "text/html");
-            const cards = doc.querySelectorAll(".anime-card");
             const results = [];
+            const items = doc.querySelectorAll(".anime-card");
 
-            cards.forEach(card => {
-                const link = card.querySelector("a")?.href;
-                const title = card.querySelector(".anime-title")?.textContent?.trim();
-                const image = card.querySelector("img")?.src;
+            items.forEach((el) => {
+                const a = el.querySelector("a");
+                const img = el.querySelector("img");
+                const title = el.querySelector(".anime-title");
 
-                if (link && title) {
+                if (a && title) {
                     results.push({
-                        title: title,
-                        url: link,
-                        image: image || ""
+                        title: title.textContent.trim(),
+                        url: a.href,
+                        image: img?.src || ""
                     });
                 }
             });
@@ -35,12 +36,11 @@ async function searchResults(keyword) {
             if (results.length > 0) return results;
 
         } catch (e) {
-            // تجاهل الخطأ وجرب الدومين التالي
-            continue;
+            console.log("Error for domain:", domain, e.message);
         }
     }
 
-    return []; // إذا لم تنجح أي محاولة
+    return [];
 }
 
 function decodeHTMLEntities(text) {
