@@ -53,86 +53,78 @@ async function searchResults(keyword) {
 
 // ✅ دالة استخراج التفاصيل
 async function extractDetails(url) {
+  const results = [];
+
   try {
-    const res = await soraFetch(url);
-    const html = await res.text();
+    const response = await soraFetch(url);
+    const html = await response.text();
 
-    const title = decodeHTMLEntities(html.match(/<h1 class="anime-details-title">(.*?)<\/h1>/)?.[1] || 'N/A');
-    const description = decodeHTMLEntities(html.match(/<p class="anime-story">(.*?)<\/p>/)?.[1] || 'N/A');
-    const poster = html.match(/<div class="anime-thumbnail">[\s\S]*?<img[^>]+src="([^"]+)"/)?.[1] || '';
-    const type = html.match(/<span>النوع:<\/span>\s*<a[^>]*>([^<]+)<\/a>/)?.[1] || 'N/A';
-    const status = html.match(/<span>حالة الأنمي:<\/span>\s*<a[^>]*>([^<]+)<\/a>/)?.[1] || 'N/A';
-    const releaseDate = html.match(/<span>بداية العرض:<\/span>\s*([^<]+)/)?.[1]?.trim() || 'N/A';
-    const duration = html.match(/<span>مدة الحلقة:<\/span>\s*([^<]+)/)?.[1]?.trim() || 'N/A';
-    const totalEpisodes = html.match(/<span>عدد الحلقات:<\/span>\s*([^<]+)/)?.[1]?.trim() || 'N/A';
-    const season = html.match(/<span>الموسم:<\/span>\s*<a[^>]*>([^<]+)<\/a>/)?.[1] || 'N/A';
-    const source = html.match(/<span>المصدر:<\/span>\s*([^<]+)/)?.[1]?.trim() || 'N/A';
+    const description = html.match(/<div class="singleDesc">\s*<p>([\s\S]*?)<\/p>/i)?.[1]?.trim() || 'N/A';
+    const airdate = html.match(/<i class="far fa-calendar-alt"><\/i>\s*موعد الصدور\s*:\s*(\d{4})/i)?.[1] || 'N/A';
+    const aliasContainer = html.match(/<i class="far fa-folders"><\/i>\s*تصنيف المسلسل\s*:\s*([\s\S]*?)<\/span>/i)?.[1];
 
-    const genres = [];
-    const genreList = html.match(/<ul class="anime-genres">([\s\S]*?)<\/ul>/);
-    if (genreList) {
-      const genreMatches = [...genreList[1].matchAll(/<li>\s*<a[^>]*>([^<]+)<\/a>/g)];
-      for (const match of genreMatches) {
-        genres.push(decodeHTMLEntities(match[1]));
-      }
+    let aliases = [];
+    if (aliasContainer) {
+      const matches = [...aliasContainer.matchAll(/<a[^>]*>([^<]+)<\/a>/g)];
+      aliases = matches.map(m => decodeHTMLEntities(m[1].trim())).filter(Boolean);
     }
 
-    const trailer = html.match(/<a[^>]+href="(https:\/\/youtu\.be\/[^"]+)"[^>]*anime-trailer/)?.[1] || '';
-    const malId = html.match(/<a[^>]+href="(https:\/\/myanimelist\.net\/anime\/[^"]+)"[^>]*anime-mal/)?.[1] || '';
+    results.push({
+      description: decodeHTMLEntities(description),
+      airdate,
+      aliases: aliases.length ? aliases.join(', ') : 'N/A'
+    });
 
-    return JSON.stringify({
-      title,
-      description,
-      poster,
-      type,
-      status,
-      releaseDate,
-      duration,
-      totalEpisodes,
-      season,
-      source,
-      genres,
-      trailer,
-      malId
-    });
-  } catch (e) {
-    console.error("extractDetails error:", e);
-    return JSON.stringify({
-      title: 'N/A',
-      description: 'N/A',
-      poster: '',
-      type: 'N/A',
-      status: 'N/A',
-      releaseDate: 'N/A',
-      duration: 'N/A',
-      totalEpisodes: 'N/A',
-      season: 'N/A',
-      source: 'N/A',
-      genres: [],
-      trailer: '',
-      malId: ''
-    });
+    return JSON.stringify(results);
+
+  } catch (error) {
+    console.error('Error extracting details:', error);
+    return JSON.stringify([{ description: 'N/A', aliases: 'N/A', airdate: 'N/A' }]);
   }
 }
 
-// ✅ دالة استخراج الحلقات
 async function extractEpisodes(url) {
   try {
-    const res = await soraFetch(url);
-    const html = await res.text();
+    const pageResponse = await soraFetch(url);
+    const html = typeof pageResponse === 'object' ? await pageResponse.text() : pageResponse;
 
     const episodes = [];
-    const matches = [...html.matchAll(/<a href="([^"]+)"[^>]*>\s*الحلقة\s*(\d+)\s*<\/a>/g)];
-    for (const match of matches) {
-      episodes.push({
-        number: parseInt(match[2]),
-        href: match[1]
-      });
+
+    // للأفلام
+    if (/\/(movies|anime-movies|asian-movies|dubbed-movies)\//.test(url)) {
+      episodes.push({ number: 1, href: url });
+      return JSON.stringify(episodes);
+    }
+
+    const seasonUrls = [];
+    let seasonMatch;
+    const seasonRegex = /<div\s+class="seasonDiv[^"]*"\s+onclick="window\.location\.href\s*=\s*'\/\?p=(\d+)'"/g;
+    while ((seasonMatch = seasonRegex.exec(html)) !== null) {
+      seasonUrls.push(`${DECODED.BASE}/?p=${seasonMatch[1]}`);
+    }
+
+    const episodeRegex = /<a href="([^"]+)"[^>]*>\s*الحلقة\s+(\d+)\s*<\/a>/g;
+
+    if (seasonUrls.length === 0) {
+      for (const match of html.matchAll(episodeRegex)) {
+        episodes.push({ number: parseInt(match[2]), href: match[1] });
+      }
+    } else {
+      const seasonHtmls = await Promise.all(
+        (await Promise.all(seasonUrls.map(url => soraFetch(url))))
+          .map(res => res.text?.() || res)
+      );
+
+      for (const seasonHtml of seasonHtmls) {
+        for (const match of seasonHtml.matchAll(episodeRegex)) {
+          episodes.push({ number: parseInt(match[2]), href: match[1] });
+        }
+      }
     }
 
     return JSON.stringify(episodes);
-  } catch (e) {
-    console.error("extractEpisodes error:", e);
+  } catch (error) {
+    console.error("extractEpisodes failed:", error);
     return JSON.stringify([]);
   }
 }
