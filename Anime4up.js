@@ -52,56 +52,51 @@ async function searchResults(keyword) {
 }
 
 // ✅ دالة استخراج التفاصيل
-function extractDetails(html) {
+async function extractDetails(url) {
   try {
+    const res = await fetchv2(url, {
+      headers: {
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/114.0.0.0 Safari/537.36',
+        'Referer': 'https://4s.qerxam.shop/'
+      }
+    });
+
+    const html = await res.text();
+
+    const details = {
+      description: 'غير متوفر',
+      airdate: 'غير معروف',
+      genres: []
+    };
+
     // الوصف
-    let description = '';
-    const descContainer = html.match(/<p class="anime-story">([\s\S]*?)<\/p>/);
-    if (descContainer) {
-      description = decodeHTMLEntities(descContainer[1].trim());
+    const descMatch = html.match(/<p class="anime-story">([\s\S]*?)<\/p>/);
+    if (descMatch && descMatch[1].trim()) {
+      details.description = decodeHTMLEntities(descMatch[1].trim());
     }
 
-    // باقي العناصر
-    const title = decodeHTMLEntities(html.match(/<h1 class="anime-details-title">(.*?)<\/h1>/)?.[1] || '');
-    const poster = html.match(/<div class="anime-thumbnail">[\s\S]*?<img[^>]+src="([^"]+)"/)?.[1] || '';
-    const type = html.match(/<span>النوع:<\/span>\s*<a[^>]*>([^<]+)<\/a>/)?.[1] || '';
-    const status = html.match(/<span>حالة الأنمي:<\/span>\s*<a[^>]*>([^<]+)<\/a>/)?.[1] || '';
-    const releaseDate = html.match(/<span>بداية العرض:<\/span>\s*([^<]+)/)?.[1]?.trim() || '';
-    const duration = html.match(/<span>مدة الحلقة:<\/span>\s*([^<]+)/)?.[1]?.trim() || '';
-    const totalEpisodes = html.match(/<span>عدد الحلقات:<\/span>\s*([^<]+)/)?.[1]?.trim() || '';
-    const season = html.match(/<span>الموسم:<\/span>\s*<a[^>]*>([^<]+)<\/a>/)?.[1] || '';
-    const source = html.match(/<span>المصدر:<\/span>\s*([^<]+)/)?.[1]?.trim() || '';
-    const trailer = html.match(/<a[^>]+href="(https:\/\/youtu\.be\/[^"]+)"[^>]*anime-trailer/)?.[1] || '';
-    const malId = html.match(/<a[^>]+href="(https:\/\/myanimelist\.net\/anime\/[^"]+)"[^>]*anime-mal/)?.[1] || '';
+    // تاريخ العرض
+    const airdateMatch = html.match(/<span>بداية العرض:<\/span>\s*([0-9]+)/);
+    if (airdateMatch && airdateMatch[1].trim()) {
+      details.airdate = airdateMatch[1].trim();
+    }
 
-    // الأنواع (Genres)
-    const genres = [];
-    const genreList = html.match(/<ul class="anime-genres">([\s\S]*?)<\/ul>/);
-    if (genreList) {
-      const genreMatches = [...genreList[1].matchAll(/<li>\s*<a[^>]*>([^<]+)<\/a>/g)];
-      for (const match of genreMatches) {
-        genres.push(decodeHTMLEntities(match[1]));
+    // التصنيفات
+    const genresMatch = html.match(/<ul class="anime-genres">([\s\S]*?)<\/ul>/);
+    if (genresMatch) {
+      const genreItems = [...genresMatch[1].matchAll(/<a[^>]*>([^<]+)<\/a>/g)];
+      if (genreItems.length > 0) {
+        details.genres = genreItems.map(m => decodeHTMLEntities(m[1].trim()));
       }
     }
 
+    return JSON.stringify(details);
+  } catch (err) {
+    console.error("extractDetails error:", err);
     return JSON.stringify({
-      title,
-      description,
-      poster,
-      type,
-      status,
-      releaseDate,
-      duration,
-      totalEpisodes,
-      season,
-      source,
-      genres,
-      trailer,
-      malId
+      description: 'خطأ أثناء التحميل',
+      airdate: 'غير معروف',
+      genres: []
     });
-
-  } catch (e) {
-    console.error("extractDetails error:", e);
-    return JSON.stringify({});
   }
 }
