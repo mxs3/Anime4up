@@ -1,17 +1,15 @@
-const cheerio = require('cheerio');
-
 async function searchResults(query) {
   const searchUrl = `https://4s.qerxam.shop/?search_param=animes&s=${encodeURIComponent(query)}`;
   const html = await fetchv2(searchUrl);
-  const $ = cheerio.load(html);
+  const $ = cheerio.load(html); // بدون require
+
   const results = [];
 
   $('.cat-post-details h2 a').each((_, el) => {
     const title = $(el).text().trim();
     const url = $(el).attr('href');
 
-    // تجاهل النتائج اللي روابطها فيها author أو category
-    if (url.includes('/author/') || url.includes('/category/')) return;
+    if (!url || url.includes('/author/') || url.includes('/category/')) return;
 
     results.push({
       title,
