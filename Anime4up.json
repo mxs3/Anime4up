@@ -1,18 +1,18 @@
 {
   "sourceName": "Anime4up",
-  "iconUrl": "https://raw.githubusercontent.com/mxs3/Anime4up/refs/heads/main/Anime4up.PNG",
+  "iconUrl": "https://raw.githubusercontent.com/mxs3/Anime4up/main/Anime4up.PNG",
   "author": {
     "name": "MxS3",
     "icon": "https://avatars.githubusercontent.com/u/212196142?s=400&u=2456ce4be2bf64074bcf483622cfe726970025fe&v=4",
     "url": "https://github.com/mxs3"
   },
-  "version": "2.5.2",
+  "version": "2.5.3",
   "language": "Arabic (SUB)",
   "streamType": "MP4",
   "quality": "1080",
   "baseUrl": "https://4i.nxdwle.shop/",
   "searchBaseUrl": "https://4i.nxdwle.shop/?s=%s",
-  "scriptUrl": "https://raw.githubusercontent.com/mxs3/Anime4up/refs/heads/main/Anime4up.js",
+  "scriptUrl": "https://raw.githubusercontent.com/mxs3/Anime4up/main/Anime4up.js",
   "type": "anime",
   "asyncJS": true,
   "streamAsyncJS": true
