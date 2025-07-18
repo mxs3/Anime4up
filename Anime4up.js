@@ -55,10 +55,7 @@ function decodeHTMLEntities(text) {
   return text.replace(/&[#A-Za-z0-9]+;/g, (entity) => entities[entity] || entity);
 }
 
-async function extractDetails(url) {
-  const response = await fetch(url);
-  const html = await response.text();
-
+function extractDetails(html) {
   const title = decodeHTMLEntities(html.match(/<h1 class="anime-details-title">(.*?)<\/h1>/)?.[1] || '');
   const description = decodeHTMLEntities(html.match(/<p class="anime-story">(.*?)<\/p>/)?.[1] || '');
   const poster = html.match(/<div class="anime-thumbnail">\s*<img[^>]+src="([^"]+)"/)?.[1] || '';
