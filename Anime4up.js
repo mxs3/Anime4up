@@ -114,72 +114,60 @@ async function extractEpisodes(url) {
   const results = [];
 
   try {
-    const baseUrl = url.replace(/\/page\/\d+\/?$/, "").replace(/\/$/, "");
+    const getPage = async (pageUrl) => {
+      const res = await fetchv2(pageUrl, {
+        headers: {
+          "User-Agent": "Mozilla/5.0",
+          "Referer": url
+        }
+      });
+      return await res.text();
+    };
 
-    // أول صفحة ضروري علشان نحدد النوع
-    const firstRes = await fetchv2(baseUrl, {
-      headers: {
-        "User-Agent": "Mozilla/5.0",
-        "Referer": baseUrl
-      }
-    });
+    const firstHtml = await getPage(url);
 
-    const firstHtml = await firstRes.text();
-
-    // ✅ تحديد نوع العمل
+    // ✅ تحقق النوع (movie vs series)
     const typeMatch = firstHtml.match(/<div class="anime-info"><span>النوع:<\/span>\s*([^<]+)<\/div>/i);
     const type = typeMatch ? typeMatch[1].trim().toLowerCase() : "";
 
-    // ✅ لو فيلم → حلقة واحدة فقط
     if (type.includes("movie") || type.includes("فيلم")) {
       return JSON.stringify([{ href: url, number: 1 }]);
     }
 
-    // ✅ لو مسلسل → نبدأ نجيب الحلقات من جميع الصفحات
-    let page = 1;
-    let hasMore = true;
+    // ✅ استخراج روابط الصفحات كلها
+    const paginationRegex = /<a[^>]+href="([^"]+\/page\/\d+\/?)"[^>]*class="page-numbers"/gi;
+    const pagesSet = new Set();
 
-    while (hasMore) {
-      const pageUrl = page === 1 ? baseUrl : `${baseUrl}/page/${page}/`;
+    let match;
+    while ((match = paginationRegex.exec(firstHtml)) !== null) {
+      pagesSet.add(match[1]);
+    }
 
-      const res = await fetchv2(pageUrl, {
-        headers: {
-          "User-Agent": "Mozilla/5.0",
-          "Referer": baseUrl
-        }
-      });
+    const pages = Array.from(pagesSet);
+    pages.push(url); // ضيف الصفحة الأولى
 
-      const html = await res.text();
+    const htmlPages = await Promise.all(
+      pages.map(page => getPage(page))
+    );
 
-      let matchFound = false;
-
+    for (const html of htmlPages) {
       const episodeRegex = /<div class="episodes-card-title">\s*<h3>\s*<a\s+href="([^"]+)">[^<]*الحلقة\s*(\d+)[^<]*<\/a>/gi;
-
-      let match;
-      while ((match = episodeRegex.exec(html)) !== null) {
-        const episodeUrl = match[1].trim();
-        const episodeNumber = parseInt(match[2].trim(), 10);
+      let epMatch;
+      while ((epMatch = episodeRegex.exec(html)) !== null) {
+        const episodeUrl = epMatch[1].trim();
+        const episodeNumber = parseInt(epMatch[2].trim(), 10);
 
         if (!isNaN(episodeNumber)) {
           results.push({
             href: episodeUrl,
             number: episodeNumber
           });
-          matchFound = true;
         }
-      }
-
-      if (!matchFound) {
-        hasMore = false;
-      } else {
-        page++;
       }
     }
 
-    // ✅ ترتيب طبيعي
     results.sort((a, b) => a.number - b.number);
 
-    // ✅ fallback لو مفيش حلقات لأي سبب
     if (results.length === 0) {
       return JSON.stringify([{ href: url, number: 1 }]);
     }
