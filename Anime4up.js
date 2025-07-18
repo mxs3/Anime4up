@@ -180,55 +180,67 @@ async function extractEpisodes(url) {
   }
 }
 
-async function extractStreamUrl(html) {
+async function extractStreamUrl(url) {
   const multiStreams = { streams: [], subtitles: null };
 
   try {
-    // ✅ regex مخصص لـ mp4upload و vidmoly
-    const mp4uploadRegex = /https?:\/\/(?:www\.)?mp4upload\.com\/(?:embed-)?([a-zA-Z0-9]+)/gi;
-    const vidmolyRegex = /https?:\/\/(?:www\.)?vidmoly\.(?:to|me|tv|net)\/(?:embed-|w\/)?([a-zA-Z0-9]+)/gi;
+    const response = await fetchv2(url, {
+      headers: {
+        "User-Agent": "Mozilla/5.0",
+        "Referer": url
+      }
+    });
+
+    const html = await response.text();
 
     const matches = [];
 
+    // ✅ MP4UPLOAD
+    const mp4uploadRegex = /https?:\/\/(?:www\.)?mp4upload\.com\/(?:embed-)?([a-zA-Z0-9]+)/gi;
     let match;
     while ((match = mp4uploadRegex.exec(html)) !== null) {
       const id = match[1];
-      if (html.includes("FHD")) {
-        matches.push({ url: `https://www.mp4upload.com/embed-${id}.html`, quality: "FHD" });
-      } else if (html.includes("HD")) {
-        matches.push({ url: `https://www.mp4upload.com/embed-${id}.html`, quality: "HD" });
-      } else if (html.includes("SD")) {
-        matches.push({ url: `https://www.mp4upload.com/embed-${id}.html`, quality: "SD" });
-      } else {
-        matches.push({ url: `https://www.mp4upload.com/embed-${id}.html`, quality: "unknown" });
-      }
+      let quality = "unknown";
+
+      if (html.includes("FHD")) quality = "FHD";
+      else if (html.includes("HD")) quality = "HD";
+      else if (html.includes("SD")) quality = "SD";
+
+      matches.push({
+        url: `https://www.mp4upload.com/embed-${id}.html`,
+        quality
+      });
     }
 
+    // ✅ VIDMOLY
+    const vidmolyRegex = /https?:\/\/(?:www\.)?vidmoly\.(?:to|me|tv|net)\/(?:embed-|w\/)?([a-zA-Z0-9]+)/gi;
     while ((match = vidmolyRegex.exec(html)) !== null) {
       const id = match[1];
-      if (html.includes("FHD")) {
-        matches.push({ url: `https://vidmoly.to/embed-${id}.html`, quality: "FHD" });
-      } else if (html.includes("HD")) {
-        matches.push({ url: `https://vidmoly.to/embed-${id}.html`, quality: "HD" });
-      } else if (html.includes("SD")) {
-        matches.push({ url: `https://vidmoly.to/embed-${id}.html`, quality: "SD" });
-      } else {
-        matches.push({ url: `https://vidmoly.to/embed-${id}.html`, quality: "unknown" });
-      }
+      let quality = "unknown";
+
+      if (html.includes("FHD")) quality = "FHD";
+      else if (html.includes("HD")) quality = "HD";
+      else if (html.includes("SD")) quality = "SD";
+
+      matches.push({
+        url: `https://vidmoly.to/embed-${id}.html`,
+        quality
+      });
     }
 
-    for (const item of matches) {
+    // ✅ تنظيم النتائج
+    for (const m of matches) {
       multiStreams.streams.push({
-        file: item.url,
-        quality: item.quality,
+        file: m.url,
+        quality: m.quality,
         type: "embed"
       });
     }
 
-    // ✅ fallback ثابت لو مفيش أي حاجة
+    // ✅ fallback ثابت لو مفيش ولا سيرفر
     if (multiStreams.streams.length === 0) {
       multiStreams.streams.push({
-        file: "https://files.catbox.moe/avolvc.mp4", // fallback ثابت
+        file: "https://files.catbox.moe/avolvc.mp4",
         quality: "480p",
         type: "mp4"
       });
@@ -237,7 +249,8 @@ async function extractStreamUrl(html) {
     return multiStreams;
 
   } catch (err) {
-    console.error("extractStreamUrl error", err);
+    console.error("extractStreamUrl error:", err);
+
     return {
       streams: [{
         file: "https://files.catbox.moe/avolvc.mp4",
