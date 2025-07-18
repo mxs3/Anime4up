@@ -198,41 +198,46 @@ async function extractStreamUrl(url) {
 
     const html = await res.text();
 
-    // استخراج روابط السيرفرات
+    // استخراج روابط السيرفرات من data-ep-url
     const serverRegex = /<a[^>]+data-ep-url="([^"]+)"[^>]*>(.*?)<\/a>/gi;
     let match;
+
     while ((match = serverRegex.exec(html)) !== null) {
-      const rawUrl = match[1].startsWith("//") ? "https:" + match[1] : match[1];
-      const lower = rawUrl.toLowerCase();
+      let embedUrl = match[1].trim();
+      const serverTitle = match[2].replace(/<[^>]+>/g, '').trim();
+
+      if (embedUrl.startsWith('//')) {
+        embedUrl = 'https:' + embedUrl;
+      }
+
+      const lower = embedUrl.toLowerCase();
 
       try {
-        if (lower.includes("mp4upload")) {
-          const stream = await mp4uploadExtractor(rawUrl);
+        if (lower.includes('mp4upload')) {
+          const stream = await extractFromMp4upload(embedUrl);
           if (stream?.url) {
-            const quality = getQualityFromUrlOrTitle(match[2]);
             multiStreams.streams.push({
-              title: quality,
+              title: getQualityFromUrlOrTitle(serverTitle),
               streamUrl: stream.url,
               headers: stream.headers
             });
           }
-        } else if (lower.includes("vidmoly")) {
-          const stream = await vidmolyExtractor(rawUrl);
+        } else if (lower.includes('vidmoly')) {
+          const stream = await extractFromVidmoly(embedUrl);
           if (stream?.url) {
-            const quality = getQualityFromUrlOrTitle(match[2]);
             multiStreams.streams.push({
-              title: quality,
+              title: getQualityFromUrlOrTitle(serverTitle),
               streamUrl: stream.url,
               headers: stream.headers
             });
           }
         }
       } catch (err) {
-        console.error("Error extracting from server:", err);
+        console.error("Error extracting from:", embedUrl, err.message);
       }
     }
 
-    // fallback لو مفيش حاجه
+    // fallback
     if (multiStreams.streams.length === 0) {
       multiStreams.streams.push({
         title: "SD (Fallback)",
@@ -242,6 +247,7 @@ async function extractStreamUrl(url) {
     }
 
     return JSON.stringify(multiStreams);
+
   } catch (err) {
     console.error("extractStreamUrl error:", err);
     return JSON.stringify({
@@ -255,17 +261,8 @@ async function extractStreamUrl(url) {
   }
 }
 
-// ✅ استخراج جودة من الاسم أو الرابط
-function getQualityFromUrlOrTitle(text) {
-  const lower = text.toLowerCase();
-  if (lower.includes("fhd") || lower.includes("1080")) return "FHD";
-  if (lower.includes("hd") || lower.includes("720")) return "HD";
-  if (lower.includes("sd") || lower.includes("480")) return "SD";
-  return "SD";
-}
-
-// ✅ extractor mp4upload
-async function mp4uploadExtractor(embedUrl) {
+// ✅ extractor لسيرفر mp4upload
+async function extractFromMp4upload(embedUrl) {
   const headers = {
     "Referer": embedUrl,
     "User-Agent": "Mozilla/5.0"
@@ -274,14 +271,14 @@ async function mp4uploadExtractor(embedUrl) {
   const res = await fetchv2(embedUrl, headers);
   const html = await res.text();
 
-  const sources = html.match(/player\.src\("([^"]+\.mp4)"\)/);
-  const url = sources ? sources[1] : null;
+  const match = html.match(/player\.src\("([^"]+\.mp4)"\)/);
+  const url = match ? match[1] : null;
 
   return { url, headers };
 }
 
-// ✅ extractor vidmoly
-async function vidmolyExtractor(embedUrl) {
+// ✅ extractor لسيرفر vidmoly
+async function extractFromVidmoly(embedUrl) {
   const headers = {
     "Referer": embedUrl,
     "User-Agent": "Mozilla/5.0"
@@ -296,13 +293,33 @@ async function vidmolyExtractor(embedUrl) {
   return { url, headers };
 }
 
-// ✅ الفنكشن الأساسيه للحماية
-function _0xCheck() {
-    var _0x1a = typeof _0xB4F2 === 'function';
-    var _0x2b = typeof _0x7E9A === 'function';
-    return _0x1a && _0x2b ? (function(_0x3c) {
-        return _0x7E9A(_0x3c);
-    })(_0xB4F2()) : !1;
+// ✅ تحديد الجودة من عنوان السيرفر
+function getQualityFromUrlOrTitle(text) {
+  const lower = text.toLowerCase();
+  if (lower.includes("fhd") || lower.includes("1080")) return "FHD";
+  if (lower.includes("hd") || lower.includes("720")) return "HD";
+  if (lower.includes("sd") || lower.includes("480")) return "SD";
+  return "SD";
 }
 
-function _0x7E9A(_){return((___,____,_____,______,_______,________,_________,__________,___________,____________)=>(____=typeof ___,_____=___&&___[String.fromCharCode(...[108,101,110,103,116,104])],______=[...String.fromCharCode(...[99,114,97,110,99,105])],_______=___?[...___[String.fromCharCode(...[116,111,76,111,119,101,114,67,97,115,101])]()]:[],(________=______[String.fromCharCode(...[115,108,105,99,101])]())&&_______[String.fromCharCode(...[102,111,114,69,97,99,104])]((_________,__________)=>(___________=________[String.fromCharCode(...[105,110,100,101,120,79,102])](_________))>=0&&________[String.fromCharCode(...[115,112,108,105,99,101])](___________,1)),____===String.fromCharCode(...[115,116,114,105,110,103])&&_____===16&&________[String.fromCharCode(...[108,101,110,103,116,104])]===0))(_)}
+// ✅ حماية سورا
+function _0xCheck() {
+  var _0x1a = typeof _0xB4F2 === 'function';
+  var _0x2b = typeof _0x7E9A === 'function';
+  return _0x1a && _0x2b ? (function (_0x3c) {
+    return _0x7E9A(_0x3c);
+  })(_0xB4F2()) : !1;
+}
+
+function _0x7E9A(_) {
+  return ((___, ____, _____, ______, _______, ________, _________, __________, ___________, ____________) => (
+    ____ = typeof ___,
+    _____ = ___ && ___["length"],
+    ______ = [..."cranci"],
+    _______ = ___ ? [...___["toLowerCase"]()] : [],
+    ________ = ______["slice"](),
+    ________ && _______["forEach"]((_________, __________) => (
+      ___________ = ________["indexOf"](_________)) >= 0 && ________["splice"](___________, 1)),
+    ____ === "string" && _____ === 16 && ________["length"] === 0
+  ))(_);
+}
