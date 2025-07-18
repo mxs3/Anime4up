@@ -40,59 +40,75 @@ async function searchResults(keyword) {
     }
 }
 
-function extractDetails(html) {
-  const title = decodeHTMLEntities(html.match(/<h1 class="anime-details-title">(.*?)<\/h1>/)?.[1] || '');
-  const description = decodeHTMLEntities(html.match(/<p class="anime-story">(.*?)<\/p>/)?.[1] || '');
-  const poster = html.match(/<div class="anime-thumbnail">\s*<img[^>]+src="([^"]+)"/)?.[1] || '';
-  const type = html.match(/<span>النوع:<\/span>\s*<a[^>]*>(.*?)<\/a>/)?.[1] || '';
-  const status = html.match(/<span>حالة الأنمي:<\/span>\s*<a[^>]*>(.*?)<\/a>/)?.[1] || '';
-  const releaseDate = html.match(/<span>بداية العرض:<\/span>\s*([^<]+)/)?.[1]?.trim() || '';
-  const duration = html.match(/<span>مدة الحلقة:<\/span>\s*([^<]+)/)?.[1]?.trim() || '';
-  const totalEpisodes = html.match(/<span>عدد الحلقات:<\/span>\s*([^<]+)/)?.[1]?.trim() || '';
-  const season = html.match(/<span>الموسم:<\/span>\s*<a[^>]*>(.*?)<\/a>/)?.[1] || '';
-  const source = html.match(/<span>المصدر:<\/span>\s*([^<]+)/)?.[1]?.trim() || '';
-  const malLink = html.match(/<a[^>]+href="(https:\/\/myanimelist\.net\/anime\/[^"]+)"[^>]*anime-mal/)?.[1] || '';
-  const trailer = html.match(/<a[^>]+href="(https:\/\/youtu\.be\/[^"]+)"[^>]*anime-trailer/)?.[1] || '';
+async function extractDetails(url) {
+  try {
+    const res = await soraFetch(url);
+    const html = await res.text();
 
-  const genres = [];
-  const genresMatch = html.match(/<ul class="anime-genres">([\s\S]*?)<\/ul>/);
-  if (genresMatch) {
-    const liMatches = [...genresMatch[1].matchAll(/<li>\s*<a[^>]*>(.*?)<\/a>\s*<\/li>/g)];
-    for (const match of liMatches) {
-      genres.push(match[1].trim());
+    const title = decodeHTMLEntities(html.match(/<h1 class="anime-details-title">(.*?)<\/h1>/)?.[1] || '');
+    const description = decodeHTMLEntities(html.match(/<p class="anime-story">(.*?)<\/p>/)?.[1] || '');
+    const poster = html.match(/<div class="anime-thumbnail">\s*<img[^>]+src="([^"]+)"/)?.[1] || '';
+    const type = html.match(/<span>النوع:<\/span>\s*<a[^>]*>(.*?)<\/a>/)?.[1] || '';
+    const status = html.match(/<span>حالة الأنمي:<\/span>\s*<a[^>]*>(.*?)<\/a>/)?.[1] || '';
+    const releaseDate = html.match(/<span>بداية العرض:<\/span>\s*([^<]+)/)?.[1]?.trim() || '';
+    const duration = html.match(/<span>مدة الحلقة:<\/span>\s*([^<]+)/)?.[1]?.trim() || '';
+    const totalEpisodes = html.match(/<span>عدد الحلقات:<\/span>\s*([^<]+)/)?.[1]?.trim() || '';
+    const season = html.match(/<span>الموسم:<\/span>\s*<a[^>]*>(.*?)<\/a>/)?.[1] || '';
+    const source = html.match(/<span>المصدر:<\/span>\s*([^<]+)/)?.[1]?.trim() || '';
+
+    const genres = [];
+    const genresMatch = [...html.matchAll(/<ul class="anime-genres">([\s\S]*?)<\/ul>/g)];
+    if (genresMatch.length > 0) {
+      const liMatches = [...genresMatch[0][1].matchAll(/<li>\s*<a[^>]*>(.*?)<\/a>\s*<\/li>/g)];
+      for (const match of liMatches) {
+        genres.push(decodeHTMLEntities(match[1].trim()));
+      }
     }
-  }
 
-  return JSON.stringify({
-    title,
-    description,
-    poster,
-    type,
-    status,
-    releaseDate,
-    duration,
-    totalEpisodes,
-    season,
-    source,
-    genres,
-    malId: malLink,
-    trailer
-  });
+    const malLink = html.match(/<a[^>]+href="(https:\/\/myanimelist\.net\/anime\/[^"]+)"[^>]*anime-mal/)?.[1] || '';
+    const trailer = html.match(/<a[^>]+href="(https:\/\/youtu\.be\/[^"]+)"[^>]*anime-trailer/)?.[1] || '';
+
+    return JSON.stringify({
+      title,
+      description,
+      poster,
+      type,
+      status,
+      releaseDate,
+      duration,
+      totalEpisodes,
+      season,
+      source,
+      genres,
+      malId: malLink,
+      trailer
+    });
+  } catch (err) {
+    console.error("extractDetails error:", err);
+    return JSON.stringify({});
+  }
 }
 
-function extractEpisodes(html) {
-  const episodes = [];
-  const episodeRegex = /<div class="episodes-card-title">\s*<h3><a href="([^"]+)">([^<]+)<\/a><\/h3>/g;
+async function extractEpisodes(url) {
+  try {
+    const res = await soraFetch(url);
+    const html = await res.text();
 
-  let match;
-  while ((match = episodeRegex.exec(html)) !== null) {
-    episodes.push({
-      title: match[2].trim(),
-      url: match[1],
-    });
+    const episodes = [];
+
+    const matches = [...html.matchAll(/<a href="([^"]+)"[^>]*>\s*الحلقة\s*(\d+)\s*<\/a>/g)];
+    for (const match of matches) {
+      episodes.push({
+        number: parseInt(match[2]),
+        href: match[1]
+      });
+    }
+
+    return JSON.stringify(episodes);
+  } catch (err) {
+    console.error("extractEpisodes error:", err);
+    return JSON.stringify([]);
   }
-
-  return JSON.stringify(episodes);
 }
 
 function decodeHTMLEntities(text) {
