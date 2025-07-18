@@ -113,8 +113,8 @@ async function extractDetails(url) {
 async function extractEpisodes(url) {
   const results = [];
 
-  const fetchEpisodesFromPage = async (pageUrl) => {
-    const response = await fetchv2(pageUrl, {
+  try {
+    const response = await fetchv2(url, {
       headers: {
         "User-Agent": "Mozilla/5.0",
         "Referer": url
@@ -123,6 +123,16 @@ async function extractEpisodes(url) {
 
     const html = await response.text();
 
+    // ✅ التحقق من النوع (Movie أو TV)
+    const typeMatch = html.match(/<div class="anime-info"><span>النوع:<\/span>\s*([^<]+)<\/div>/i);
+    const type = typeMatch ? typeMatch[1].trim().toLowerCase() : "";
+
+    // ✅ لو فيلم رجع حلقة واحدة
+    if (type.includes("movie") || type.includes("فيلم")) {
+      return JSON.stringify([{ href: url, number: 1 }]);
+    }
+
+    // ✅ regex قوي يجيب كل الحلقات
     const episodeRegex = /<div class="episodes-card-title">\s*<h3>\s*<a\s+href="([^"]+)">[^<]*الحلقة\s*(\d+)[^<]*<\/a>/gi;
 
     let match;
@@ -138,33 +148,10 @@ async function extractEpisodes(url) {
       }
     }
 
-    return html;
-  };
-
-  try {
-    // ✅ أول صفحة
-    const firstHtml = await fetchEpisodesFromPage(url);
-
-    // ✅ استخرج أقصى صفحة من pagination
-    const pageMatches = [...firstHtml.matchAll(/\/page\/(\d+)\//g)];
-    const maxPage = Math.max(1, ...pageMatches.map(m => parseInt(m[1])));
-
-    // ✅ باقي الصفحات
-    for (let i = 2; i <= maxPage; i++) {
-      const pageUrl = url.endsWith('/') ? `${url}page/${i}/` : `${url}/page/${i}/`;
-      await fetchEpisodesFromPage(pageUrl);
-    }
-
-    // ✅ تحقق من النوع (فيلم؟)
-    const typeMatch = firstHtml.match(/<div class="anime-info"><span>النوع:<\/span>\s*([^<]+)<\/div>/i);
-    const type = typeMatch ? typeMatch[1].trim().toLowerCase() : "";
-    if (type.includes("movie") || type.includes("فيلم")) {
-      return JSON.stringify([{ href: url, number: 1 }]);
-    }
-
-    // ✅ ترتيب طبيعي
+    // ✅ ترتيب تصاعدي طبيعي
     results.sort((a, b) => a.number - b.number);
 
+    // ✅ fallback لو مفيش حلقات
     if (results.length === 0) {
       return JSON.stringify([{ href: url, number: 1 }]);
     }
