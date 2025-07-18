@@ -114,20 +114,33 @@ async function extractEpisodes(url) {
   const results = [];
 
   try {
-    const response = await fetchV2(url); // متوافق مع سورا
-    const html = response;
+    const response = await soraFetch(url, {
+      headers: {
+        "User-Agent": "Sora-Extension",
+        "Referer": url
+      }
+    });
 
-    // استخراج الحلقات
+    const html = await response.text();
+
+    // 👇 استخراج النوع من صفحة الأنمي
+    const typeMatch = html.match(/<div class="anime-info">\s*<span>النوع:<\/span>\s*<a[^>]*>([^<]+)<\/a>/);
+    const type = typeMatch ? typeMatch[1].trim().toLowerCase() : "";
+
+    // لو Movie نرجع حلقة واحدة فقط
+    if (type.includes("movie")) {
+      return JSON.stringify([{ href: url, number: 1 }]);
+    }
+
+    // 👇 ريجيكس لاستخراج الحلقات من صفحة مسلسل
     const episodeRegex = /<a[^>]+href="([^"]+\/episode\/[^"]+)"[^>]*>[\s\S]*?الحلقة\s*(\d+)<\/a>/g;
-    let match;
-    const seen = new Set(); // منع تكرار الروابط
 
+    let match;
     while ((match = episodeRegex.exec(html)) !== null) {
       const episodeUrl = match[1].trim();
       const episodeNumber = parseInt(match[2].trim(), 10);
 
-      if (!isNaN(episodeNumber) && !seen.has(episodeUrl)) {
-        seen.add(episodeUrl);
+      if (!isNaN(episodeNumber)) {
         results.push({
           href: episodeUrl,
           number: episodeNumber
@@ -135,29 +148,18 @@ async function extractEpisodes(url) {
       }
     }
 
-    // ✅ ترتيب طبيعي
+    // ✅ ترتيب طبيعي تصاعدي
     results.sort((a, b) => a.number - b.number);
 
-    // ✅ تحليل نوع المحتوى
+    // ✅ fallback لو مفيش أي حلقة
     if (results.length === 0) {
-      // لا يوجد أي روابط حلقات -> fallback لفيلم
       return JSON.stringify([{ href: url, number: 1 }]);
     }
 
-    if (results.length === 1) {
-      const epNum = results[0].number;
-
-      // لو رقمها 0 أو 1، غالباً فيلم مش مسلسل
-      if (epNum === 0 || epNum === 1) {
-        return JSON.stringify([{ href: results[0].href || url, number: 1 }]);
-      }
-    }
-
-    // ✅ مسلسل حقيقي
     return JSON.stringify(results);
 
   } catch (err) {
     console.error("extractEpisodes error:", err);
-    return JSON.stringify([{ href: url, number: 1 }]); // fallback في حالة فشل
+    return JSON.stringify([{ href: url, number: 1 }]);
   }
 }
