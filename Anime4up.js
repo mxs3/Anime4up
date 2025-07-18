@@ -1,28 +1,33 @@
 async function searchResults(keyword) {
-    const multiDomains = [
+    const domains = [
         "https://4i.nxdwle.shop",
         "https://anime4up.rest",
         "https://anime4up.bond"
     ];
 
-    for (const domain of multiDomains) {
+    for (const domain of domains) {
         try {
-            const searchUrl = `${domain}/?s=${encodeURIComponent(keyword)}`;
-            const html = await fetchv2(searchUrl); // ✅ مباشرة بدون .text()
+            const url = `${domain}/?s=${encodeURIComponent(keyword)}`;
+            const res = await fetchv2(url);
+            const html = await res.text();
 
-            const $ = cheerio.load(html);
+            // تأكد من وجود نتيجة HTML
+            if (!html || html.trim() === "") continue;
+
+            const doc = new DOMParser().parseFromString(html, "text/html");
+            const cards = doc.querySelectorAll(".anime-card");
             const results = [];
 
-            $(".anime-card").each((i, el) => {
-                const link = $(el).find("a").attr("href");
-                const title = $(el).find(".anime-title").text().trim();
-                const poster = $(el).find("img").attr("src");
+            cards.forEach(card => {
+                const link = card.querySelector("a")?.href;
+                const title = card.querySelector(".anime-title")?.textContent?.trim();
+                const image = card.querySelector("img")?.src;
 
                 if (link && title) {
                     results.push({
                         title: title,
                         url: link,
-                        image: poster || ""
+                        image: image || ""
                     });
                 }
             });
@@ -30,11 +35,12 @@ async function searchResults(keyword) {
             if (results.length > 0) return results;
 
         } catch (e) {
-            // لو في خطأ في الدومين ده، نجرب اللي بعده
+            // تجاهل الخطأ وجرب الدومين التالي
+            continue;
         }
     }
 
-    return []; // لو مفيش نتائج من أي دومين
+    return []; // إذا لم تنجح أي محاولة
 }
 
 function decodeHTMLEntities(text) {
