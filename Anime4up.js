@@ -47,26 +47,26 @@ async function extractDetails(url) {
 
     const title = decodeHTMLEntities(html.match(/<h1 class="anime-details-title">(.*?)<\/h1>/)?.[1] || '');
     const description = decodeHTMLEntities(html.match(/<p class="anime-story">(.*?)<\/p>/)?.[1] || '');
-    const poster = html.match(/<div class="anime-thumbnail">\s*<img[^>]+src="([^"]+)"/)?.[1] || '';
-    const type = html.match(/<span>النوع:<\/span>\s*<a[^>]*>(.*?)<\/a>/)?.[1] || '';
-    const status = html.match(/<span>حالة الأنمي:<\/span>\s*<a[^>]*>(.*?)<\/a>/)?.[1] || '';
+    const poster = html.match(/<div class="anime-thumbnail">[\s\S]*?<img[^>]+src="([^"]+)"/)?.[1] || '';
+    const type = html.match(/<span>النوع:<\/span>\s*<a[^>]*>([^<]+)<\/a>/)?.[1] || '';
+    const status = html.match(/<span>حالة الأنمي:<\/span>\s*<a[^>]*>([^<]+)<\/a>/)?.[1] || '';
     const releaseDate = html.match(/<span>بداية العرض:<\/span>\s*([^<]+)/)?.[1]?.trim() || '';
     const duration = html.match(/<span>مدة الحلقة:<\/span>\s*([^<]+)/)?.[1]?.trim() || '';
     const totalEpisodes = html.match(/<span>عدد الحلقات:<\/span>\s*([^<]+)/)?.[1]?.trim() || '';
-    const season = html.match(/<span>الموسم:<\/span>\s*<a[^>]*>(.*?)<\/a>/)?.[1] || '';
+    const season = html.match(/<span>الموسم:<\/span>\s*<a[^>]*>([^<]+)<\/a>/)?.[1] || '';
     const source = html.match(/<span>المصدر:<\/span>\s*([^<]+)/)?.[1]?.trim() || '';
 
     const genres = [];
-    const genresMatch = [...html.matchAll(/<ul class="anime-genres">([\s\S]*?)<\/ul>/g)];
-    if (genresMatch.length > 0) {
-      const liMatches = [...genresMatch[0][1].matchAll(/<li>\s*<a[^>]*>(.*?)<\/a>\s*<\/li>/g)];
-      for (const match of liMatches) {
-        genres.push(decodeHTMLEntities(match[1].trim()));
+    const genreList = html.match(/<ul class="anime-genres">([\s\S]*?)<\/ul>/);
+    if (genreList) {
+      const genreMatches = [...genreList[1].matchAll(/<li>\s*<a[^>]*>([^<]+)<\/a>/g)];
+      for (const match of genreMatches) {
+        genres.push(decodeHTMLEntities(match[1]));
       }
     }
 
-    const malLink = html.match(/<a[^>]+href="(https:\/\/myanimelist\.net\/anime\/[^"]+)"[^>]*anime-mal/)?.[1] || '';
     const trailer = html.match(/<a[^>]+href="(https:\/\/youtu\.be\/[^"]+)"[^>]*anime-trailer/)?.[1] || '';
+    const malId = html.match(/<a[^>]+href="(https:\/\/myanimelist\.net\/anime\/[^"]+)"[^>]*anime-mal/)?.[1] || '';
 
     return JSON.stringify({
       title,
@@ -80,11 +80,11 @@ async function extractDetails(url) {
       season,
       source,
       genres,
-      malId: malLink,
-      trailer
+      trailer,
+      malId
     });
-  } catch (err) {
-    console.error("extractDetails error:", err);
+  } catch (e) {
+    console.error("extractDetails error:", e);
     return JSON.stringify({});
   }
 }
@@ -92,6 +92,36 @@ async function extractDetails(url) {
 async function extractEpisodes(url) {
   try {
     const res = await soraFetch(url);
+    const html = await res.text();
+
+    const episodes = [];
+    const matches = [...html.matchAll(/<a href="([^"]+)"[^>]*>\s*الحلقة\s*(\d+)\s*<\/a>/g)];
+    for (const match of matches) {
+      episodes.push({
+        number: parseInt(match[2]),
+        href: match[1]
+      });
+    }
+
+    return JSON.stringify(episodes);
+  } catch (e) {
+    console.error("extractEpisodes error:", e);
+    return JSON.stringify([]);
+  }
+}
+
+function decodeHTMLEntities(text) {
+  const entities = {
+    '&amp;': '&',
+    '&lt;': '<',
+    '&gt;': '>',
+    '&quot;': '"',
+    '&#039;': "'",
+    '&apos;': "'",
+    '&nbsp;': ' ',
+  };
+  return text.replace(/&[a-zA-Z0-9#]+;/g, match => entities[match] || match);
+}
     const html = await res.text();
 
     const episodes = [];
