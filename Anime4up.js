@@ -116,27 +116,30 @@ async function extractEpisodes(url) {
   try {
     const baseUrl = url.replace(/\/page\/\d+\/?$/, "").replace(/\/$/, "");
 
-    // أول صفحة لازم نحسب منها النوع
+    // أول صفحة ضروري علشان نحدد النوع
     const firstRes = await fetchv2(baseUrl, {
       headers: {
         "User-Agent": "Mozilla/5.0",
         "Referer": baseUrl
       }
     });
+
     const firstHtml = await firstRes.text();
 
-    // تحقق من النوع (فيلم ولا مسلسل)
+    // ✅ تحديد نوع العمل
     const typeMatch = firstHtml.match(/<div class="anime-info"><span>النوع:<\/span>\s*([^<]+)<\/div>/i);
     const type = typeMatch ? typeMatch[1].trim().toLowerCase() : "";
 
+    // ✅ لو فيلم → حلقة واحدة فقط
     if (type.includes("movie") || type.includes("فيلم")) {
       return JSON.stringify([{ href: url, number: 1 }]);
     }
 
+    // ✅ لو مسلسل → نبدأ نجيب الحلقات من جميع الصفحات
     let page = 1;
-    let keepGoing = true;
+    let hasMore = true;
 
-    while (keepGoing) {
+    while (hasMore) {
       const pageUrl = page === 1 ? baseUrl : `${baseUrl}/page/${page}/`;
 
       const res = await fetchv2(pageUrl, {
@@ -148,34 +151,41 @@ async function extractEpisodes(url) {
 
       const html = await res.text();
 
-      const episodeRegex = /<div class="episodes-card-title">\s*<h3>\s*<a\s+href="([^"]+)">[^<]*الحلقة\s*(\d+)[^<]*<\/a>/gi;
       let matchFound = false;
+
+      const episodeRegex = /<div class="episodes-card-title">\s*<h3>\s*<a\s+href="([^"]+)">[^<]*الحلقة\s*(\d+)[^<]*<\/a>/gi;
 
       let match;
       while ((match = episodeRegex.exec(html)) !== null) {
         const episodeUrl = match[1].trim();
         const episodeNumber = parseInt(match[2].trim(), 10);
+
         if (!isNaN(episodeNumber)) {
-          results.push({ href: episodeUrl, number: episodeNumber });
+          results.push({
+            href: episodeUrl,
+            number: episodeNumber
+          });
           matchFound = true;
         }
       }
 
-      // لو مفيش حلقات في الصفحة، وقف التكرار
       if (!matchFound) {
-        keepGoing = false;
+        hasMore = false;
       } else {
         page++;
       }
     }
 
+    // ✅ ترتيب طبيعي
     results.sort((a, b) => a.number - b.number);
 
+    // ✅ fallback لو مفيش حلقات لأي سبب
     if (results.length === 0) {
       return JSON.stringify([{ href: url, number: 1 }]);
     }
 
     return JSON.stringify(results);
+
   } catch (err) {
     console.error("extractEpisodes error:", err);
     return JSON.stringify([{ href: url, number: 1 }]);
