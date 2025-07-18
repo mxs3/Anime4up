@@ -1,45 +1,43 @@
 async function searchResults(keyword) {
-    const possibleDomains = [
-        "https://anime4up.rest",
-        "https://anime4up.bond",
-        "https://4i.nxdwle.shop"
-    ];
+  const domains = [
+    "https://4i.nxdwle.shop",
+    "https://anime4up.rest",
+    "https://anime4up.bond"
+  ];
 
+  for (const domain of domains) {
+    const listUrl = `${domain}/anime-list-3/`;
+    const html = await fetchv2(listUrl);
+    if (!html) continue;
+
+    const regex = /<li>\s*<a href="([^"]+)">([^<]+)<\/a>\s*<\/li>/g;
     const results = [];
+    let match;
 
-    for (const base of possibleDomains) {
-        const url = `${base}/anime-list-3/`;
-        const html = await fetchv2(url);
-        if (!html) continue;
-
-        const regex = /<li><a href="([^"]+)"[^>]*>([^<]+)<\/a><\/li>/g;
-        let match;
-
-        while ((match = regex.exec(html)) !== null) {
-            const href = match[1];
-            const title = decodeHTMLEntities(match[2]);
-
-            if (title.toLowerCase().includes(keyword.toLowerCase())) {
-                results.push({
-                    title,
-                    href,
-                    image: `${base}/wp-content/themes/anime/images/logo.png`
-                });
-            }
-        }
-
-        if (results.length > 0) break; // لو جاب نتائج من دومين، نوقف هنا
+    while ((match = regex.exec(html)) !== null) {
+      const link = match[1];
+      const rawTitle = decodeHTMLEntities(match[2]);
+      if (rawTitle.toLowerCase().includes(keyword.toLowerCase())) {
+        results.push({
+          title: rawTitle,
+          href: link.startsWith("http") ? link : domain + link,
+          image: `${domain}/wp-content/themes/anime/images/logo.png` // صورة افتراضية
+        });
+      }
     }
 
-    return results;
+    if (results.length > 0) return results;
+  }
+
+  return []; // fallback
 }
 
 function decodeHTMLEntities(text) {
-    return text
-        .replace(/&#(\d+);/g, (_, dec) => String.fromCharCode(dec))
-        .replace(/&quot;/g, '"')
-        .replace(/&amp;/g, '&')
-        .replace(/&apos;/g, "'")
-        .replace(/&lt;/g, '<')
-        .replace(/&gt;/g, '>');
+  return text
+    .replace(/&#(\d+);/g, (_, dec) => String.fromCharCode(dec))
+    .replace(/&quot;/g, '"')
+    .replace(/&amp;/g, '&')
+    .replace(/&apos;/g, "'")
+    .replace(/&lt;/g, '<')
+    .replace(/&gt;/g, '>');
 }
