@@ -57,16 +57,16 @@ async function extractDetails(url) {
     const res = await soraFetch(url);
     const html = await res.text();
 
-    const title = decodeHTMLEntities(html.match(/<h1 class="anime-details-title">(.*?)<\/h1>/)?.[1] || '');
-    const description = decodeHTMLEntities(html.match(/<p class="anime-story">(.*?)<\/p>/)?.[1] || '');
+    const title = decodeHTMLEntities(html.match(/<h1 class="anime-details-title">(.*?)<\/h1>/)?.[1] || 'N/A');
+    const description = decodeHTMLEntities(html.match(/<p class="anime-story">(.*?)<\/p>/)?.[1] || 'N/A');
     const poster = html.match(/<div class="anime-thumbnail">[\s\S]*?<img[^>]+src="([^"]+)"/)?.[1] || '';
-    const type = html.match(/<span>النوع:<\/span>\s*<a[^>]*>([^<]+)<\/a>/)?.[1] || '';
-    const status = html.match(/<span>حالة الأنمي:<\/span>\s*<a[^>]*>([^<]+)<\/a>/)?.[1] || '';
-    const releaseDate = html.match(/<span>بداية العرض:<\/span>\s*([^<]+)/)?.[1]?.trim() || '';
-    const duration = html.match(/<span>مدة الحلقة:<\/span>\s*([^<]+)/)?.[1]?.trim() || '';
-    const totalEpisodes = html.match(/<span>عدد الحلقات:<\/span>\s*([^<]+)/)?.[1]?.trim() || '';
-    const season = html.match(/<span>الموسم:<\/span>\s*<a[^>]*>([^<]+)<\/a>/)?.[1] || '';
-    const source = html.match(/<span>المصدر:<\/span>\s*([^<]+)/)?.[1]?.trim() || '';
+    const type = html.match(/<span>النوع:<\/span>\s*<a[^>]*>([^<]+)<\/a>/)?.[1] || 'N/A';
+    const status = html.match(/<span>حالة الأنمي:<\/span>\s*<a[^>]*>([^<]+)<\/a>/)?.[1] || 'N/A';
+    const releaseDate = html.match(/<span>بداية العرض:<\/span>\s*([^<]+)/)?.[1]?.trim() || 'N/A';
+    const duration = html.match(/<span>مدة الحلقة:<\/span>\s*([^<]+)/)?.[1]?.trim() || 'N/A';
+    const totalEpisodes = html.match(/<span>عدد الحلقات:<\/span>\s*([^<]+)/)?.[1]?.trim() || 'N/A';
+    const season = html.match(/<span>الموسم:<\/span>\s*<a[^>]*>([^<]+)<\/a>/)?.[1] || 'N/A';
+    const source = html.match(/<span>المصدر:<\/span>\s*([^<]+)/)?.[1]?.trim() || 'N/A';
 
     const genres = [];
     const genreList = html.match(/<ul class="anime-genres">([\s\S]*?)<\/ul>/);
@@ -97,7 +97,21 @@ async function extractDetails(url) {
     });
   } catch (e) {
     console.error("extractDetails error:", e);
-    return JSON.stringify({});
+    return JSON.stringify({
+      title: 'N/A',
+      description: 'N/A',
+      poster: '',
+      type: 'N/A',
+      status: 'N/A',
+      releaseDate: 'N/A',
+      duration: 'N/A',
+      totalEpisodes: 'N/A',
+      season: 'N/A',
+      source: 'N/A',
+      genres: [],
+      trailer: '',
+      malId: ''
+    });
   }
 }
 
