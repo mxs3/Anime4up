@@ -114,26 +114,26 @@ async function extractEpisodes(url) {
   const results = [];
 
   try {
-    const response = await soraFetch(url, {
+    const response = await fetchv2(url, {
       headers: {
-        "User-Agent": "Sora-Extension",
+        "User-Agent": "Mozilla/5.0",
         "Referer": url
       }
     });
 
     const html = await response.text();
 
-    // استخراج النوع
-    const typeMatch = html.match(/<div class="anime-info">\s*<span>النوع:<\/span>\s*<a[^>]*>([^<]+)<\/a>/);
+    // ✅ التحقق من نوع العمل (فيلم ولا مسلسل)
+    const typeMatch = html.match(/<div class="anime-info"><span>النوع:<\/span>\s*([^<]+)<\/div>/i);
     const type = typeMatch ? typeMatch[1].trim().toLowerCase() : "";
 
-    // لو النوع فيلم: حلقة واحدة فقط
-    if (type.includes("movie")) {
+    // ✅ لو فيلم: نرجع رابط واحد فقط
+    if (type.includes("movie") || type.includes("فيلم")) {
       return JSON.stringify([{ href: url, number: 1 }]);
     }
 
-    // استخراج الحلقات بشكل دقيق
-    const episodeRegex = /<h3>\s*<a\s+href="([^"]+\/episode\/[^"]+)">[^<]*?الحلقة\s+(\d+)[^<]*<\/a>\s*<\/h3>/g;
+    // ✅ لو مسلسل: نجيب كل الحلقات
+    const episodeRegex = /<div class="episodes-card-title">\s*<h3>\s*<a\s+href="([^"]+)">[^<]*الحلقة\s*(\d+)[^<]*<\/a>/gi;
 
     let match;
     while ((match = episodeRegex.exec(html)) !== null) {
@@ -148,10 +148,10 @@ async function extractEpisodes(url) {
       }
     }
 
-    // ترتيب طبيعي
+    // ✅ ترتيب الحلقات تصاعدي
     results.sort((a, b) => a.number - b.number);
 
-    // fallback
+    // ✅ fallback ذكي لو مفيش حلقات بس هو مش فيلم
     if (results.length === 0) {
       return JSON.stringify([{ href: url, number: 1 }]);
     }
