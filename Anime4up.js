@@ -54,32 +54,51 @@ async function searchResults(keyword) {
 // ✅ دالة استخراج التفاصيل
 async function extractDetails(url) {
   try {
-    const res = await soraFetch(url);
-    const html = await res.text();
+    const response = await soraFetch(url);
+    const html = await response.text();
 
-    const results = [];
+    const title = decodeHTMLEntities(html.match(/<h1 class="anime-details-title">(.*?)<\/h1>/)?.[1] || '');
+    const poster = html.match(/<div class="anime-thumbnail">[\s\S]*?<img[^>]+src="([^"]+)"/)?.[1] || '';
+    const description = decodeHTMLEntities(html.match(/<p class="anime-story">(.*?)<\/p>/s)?.[1] || '');
 
-    // الوصف
-    const description = html.match(/<div class="singleDesc">[\s\S]*?<p>([\s\S]*?)<\/p>/i)?.[1]?.trim() || 'N/A';
+    const type = html.match(/<span>النوع:<\/span>\s*<a[^>]*>([^<]+)<\/a>/)?.[1] || '';
+    const status = html.match(/<span>حالة الأنمي:<\/span>\s*<a[^>]*>([^<]+)<\/a>/)?.[1] || '';
+    const releaseDate = html.match(/<span>بداية العرض:<\/span>\s*([^<]+)/)?.[1]?.trim() || '';
+    const duration = html.match(/<span>مدة الحلقة:<\/span>\s*([^<]+)/)?.[1]?.trim() || '';
+    const totalEpisodes = html.match(/<span>عدد الحلقات:<\/span>\s*([^<]+)/)?.[1]?.trim() || '';
+    const season = html.match(/<span>الموسم:<\/span>\s*<a[^>]*>([^<]+)<\/a>/)?.[1] || '';
+    const source = html.match(/<span>المصدر:<\/span>\s*([^<]+)/)?.[1]?.trim() || '';
 
-    // سنة العرض
-    const airdate = html.match(/<i class="far fa-calendar-alt"><\/i>\s*موعد الصدور\s*:\s*([0-9]{4})/i)?.[1]?.trim() || 'N/A';
+    const genres = [];
+    const genreList = html.match(/<ul class="anime-genres">([\s\S]*?)<\/ul>/);
+    if (genreList) {
+      const matches = [...genreList[1].matchAll(/<a[^>]*>([^<]+)<\/a>/g)];
+      for (const m of matches) {
+        genres.push(decodeHTMLEntities(m[1]));
+      }
+    }
 
-    // التصنيفات كأسماء بديلة
-    const aliasBlock = html.match(/<i class="far fa-folders"><\/i>\s*تصنيف المسلسل\s*:\s*([\s\S]*?)<\/span>/i)?.[1] || '';
-    const aliases = [...aliasBlock.matchAll(/<a[^>]*>([^<]+)<\/a>/g)].map(m => decodeHTMLEntities(m[1].trim()));
+    const trailer = html.match(/<a[^>]+href="(https:\/\/youtu\.be\/[^"]+)"[^>]*anime-trailer/)?.[1] || '';
+    const malId = html.match(/<a[^>]+href="(https:\/\/myanimelist\.net\/anime\/[^"]+)"[^>]*anime-mal/)?.[1] || '';
 
-    results.push({
-      description: decodeHTMLEntities(description),
-      airdate,
-      aliases: aliases.length ? aliases.join(', ') : 'N/A'
+    return JSON.stringify({
+      title,
+      description,
+      poster,
+      type,
+      status,
+      releaseDate,
+      duration,
+      totalEpisodes,
+      season,
+      source,
+      genres,
+      trailer,
+      malId
     });
-
-    return JSON.stringify(results);
-
-  } catch (err) {
-    console.error("extractDetails error:", err);
-    return JSON.stringify([{ description: 'N/A', airdate: 'N/A', aliases: 'N/A' }]);
+  } catch (e) {
+    console.error("extractDetails error:", e);
+    return JSON.stringify({});
   }
 }
 
