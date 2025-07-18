@@ -1,52 +1,42 @@
 async function searchResults(keyword) {
-    const multiDomains = [
-        "https://4i.nxdwle.shop",
-        "https://anime4up.rest",
-        "https://anime4up.bond"
-    ];
+  try {
+    const url = `https://anime4up.rest/?s=${encodeURIComponent(keyword)}`;
+    const res = await fetchv2(url, {
+      headers: {
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)"
+      }
+    });
 
-    for (const domain of multiDomains) {
-        try {
-            const searchUrl = domain.trim().replace(/\/+$/, '') + "/?s=" + encodeURIComponent(keyword);
-            console.log("🔍 Trying URL:", searchUrl);
+    const html = await res.text();
 
-            const res = await fetchv2(searchUrl);
-            const html = await res.text();
+    const results = [];
+    const pattern = /<div class="anime-card">([\s\S]*?)<\/div>\s*<\/div>/g;
+    let match;
 
-            if (!html || html.trim().length < 10) {
-                console.log("⚠️ Empty HTML response from:", searchUrl);
-                continue;
-            }
+    while ((match = pattern.exec(html)) !== null) {
+      const card = match[1];
 
-            const parser = new DOMParser();
-            const doc = parser.parseFromString(html, "text/html");
+      const linkMatch = card.match(/<a[^>]+href="([^"]+)"/);
+      const titleMatch = card.match(/<div class="anime-title">([^<]+)<\/div>/);
+      const imageMatch = card.match(/<img[^>]+src="([^"]+)"/);
 
-            const results = [];
-            const items = doc.querySelectorAll(".anime-card");
+      const link = linkMatch ? linkMatch[1] : null;
+      const title = titleMatch ? titleMatch[1].trim() : null;
+      const image = imageMatch ? imageMatch[1] : null;
 
-            items.forEach((el) => {
-                const a = el.querySelector("a");
-                const img = el.querySelector("img");
-                const title = el.querySelector(".anime-title");
-
-                if (a && title) {
-                    results.push({
-                        title: title.textContent.trim(),
-                        url: a.href,
-                        image: img?.src || ""
-                    });
-                }
-            });
-
-            if (results.length > 0) return results;
-            console.log("ℹ️ No results found on:", searchUrl);
-
-        } catch (e) {
-            console.log("❌ Error for domain:", domain, "→", e.message);
-        }
+      if (link && title) {
+        results.push({
+          title,
+          url: link,
+          image: image || ""
+        });
+      }
     }
 
+    return results;
+  } catch (err) {
     return [];
+  }
 }
 
 function decodeHTMLEntities(text) {
