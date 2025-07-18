@@ -181,88 +181,128 @@ async function extractEpisodes(url) {
 }
 
 async function extractStreamUrl(url) {
-  const result = {
+  if (!_0xCheck()) return 'https://files.catbox.moe/avolvc.mp4';
+
+  const multiStreams = {
     streams: [],
     subtitles: null
   };
 
   try {
-    const headers = {
+    const res = await fetchv2(url, {
       headers: {
         'User-Agent': 'Mozilla/5.0',
         'Referer': url
       }
-    };
+    });
 
-    const html = await fetchv2(url, headers).then(res => res.text());
+    const html = await res.text();
 
-    // ✅ استخراج روابط السيرفرات من صفحة الحلقة
-    const serverRegex = /<a[^>]+data-ep-url="([^"]+)"[^>]*>([^<]+)<\/a>/gi;
-    const servers = [];
+    // استخراج روابط السيرفرات
+    const serverRegex = /<a[^>]+data-ep-url="([^"]+)"[^>]*>(.*?)<\/a>/gi;
     let match;
     while ((match = serverRegex.exec(html)) !== null) {
-      const link = match[1].startsWith("//") ? "https:" + match[1] : match[1];
-      const label = match[2].toLowerCase().trim();
-      servers.push({ link, label });
-    }
+      const rawUrl = match[1].startsWith("//") ? "https:" + match[1] : match[1];
+      const lower = rawUrl.toLowerCase();
 
-    // ✅ معالجة كل سيرفر mp4upload أو vidmoly فقط
-    for (const server of servers) {
-      const { link, label } = server;
-
-      // 🎥 mp4upload extractor
-      if (link.includes("mp4upload.com")) {
-        try {
-          const page = await fetchv2(link, headers).then(r => r.text());
-          const match = page.match(/player\.src\(\{\s*file:\s*['"]([^'"]+)['"]/);
-          if (match && match[1]) {
-            result.streams.push({
-              url: match[1],
-              quality: label.includes("fhd") ? "FHD" :
-                       label.includes("sd") ? "SD" :
-                       label.includes("hd") ? "HD" : "Auto"
+      try {
+        if (lower.includes("mp4upload")) {
+          const stream = await mp4uploadExtractor(rawUrl);
+          if (stream?.url) {
+            const quality = getQualityFromUrlOrTitle(match[2]);
+            multiStreams.streams.push({
+              title: quality,
+              streamUrl: stream.url,
+              headers: stream.headers
             });
           }
-        } catch (e) {}
-      }
-
-      // 🎥 vidmoly extractor
-      if (link.includes("vidmoly")) {
-        try {
-          const page = await fetchv2(link, headers).then(r => r.text());
-          const match = page.match(/sources:\s*\[\s*\{file:\s*["']([^"']+)["']/i);
-          if (match && match[1]) {
-            result.streams.push({
-              url: match[1],
-              quality: label.includes("fhd") ? "FHD" :
-                       label.includes("sd") ? "SD" :
-                       label.includes("hd") ? "HD" : "Auto"
+        } else if (lower.includes("vidmoly")) {
+          const stream = await vidmolyExtractor(rawUrl);
+          if (stream?.url) {
+            const quality = getQualityFromUrlOrTitle(match[2]);
+            multiStreams.streams.push({
+              title: quality,
+              streamUrl: stream.url,
+              headers: stream.headers
             });
           }
-        } catch (e) {}
+        }
+      } catch (err) {
+        console.error("Error extracting from server:", err);
       }
     }
 
-    // ✅ fallback في حالة مفيش أي stream
-    if (result.streams.length === 0) {
-      result.streams.push({
-        url: url,
-        quality: "480p",
-        fallback: true
+    // fallback لو مفيش حاجه
+    if (multiStreams.streams.length === 0) {
+      multiStreams.streams.push({
+        title: "SD (Fallback)",
+        streamUrl: "https://files.catbox.moe/avolvc.mp4",
+        headers: {}
       });
     }
 
-    return result;
-
+    return JSON.stringify(multiStreams);
   } catch (err) {
     console.error("extractStreamUrl error:", err);
-    return {
+    return JSON.stringify({
       streams: [{
-        url: url,
-        quality: "480p",
-        fallback: true
+        title: "SD (Fallback)",
+        streamUrl: "https://files.catbox.moe/avolvc.mp4",
+        headers: {}
       }],
       subtitles: null
-    };
+    });
   }
 }
+
+// ✅ استخراج جودة من الاسم أو الرابط
+function getQualityFromUrlOrTitle(text) {
+  const lower = text.toLowerCase();
+  if (lower.includes("fhd") || lower.includes("1080")) return "FHD";
+  if (lower.includes("hd") || lower.includes("720")) return "HD";
+  if (lower.includes("sd") || lower.includes("480")) return "SD";
+  return "SD";
+}
+
+// ✅ extractor mp4upload
+async function mp4uploadExtractor(embedUrl) {
+  const headers = {
+    "Referer": embedUrl,
+    "User-Agent": "Mozilla/5.0"
+  };
+
+  const res = await fetchv2(embedUrl, headers);
+  const html = await res.text();
+
+  const sources = html.match(/player\.src\("([^"]+\.mp4)"\)/);
+  const url = sources ? sources[1] : null;
+
+  return { url, headers };
+}
+
+// ✅ extractor vidmoly
+async function vidmolyExtractor(embedUrl) {
+  const headers = {
+    "Referer": embedUrl,
+    "User-Agent": "Mozilla/5.0"
+  };
+
+  const res = await fetchv2(embedUrl, headers);
+  const html = await res.text();
+
+  const match = html.match(/sources:\s*\[\s*\{\s*file:\s*"([^"]+\.mp4)"/);
+  const url = match ? match[1] : null;
+
+  return { url, headers };
+}
+
+// ✅ الفنكشن الأساسيه للحماية
+function _0xCheck() {
+    var _0x1a = typeof _0xB4F2 === 'function';
+    var _0x2b = typeof _0x7E9A === 'function';
+    return _0x1a && _0x2b ? (function(_0x3c) {
+        return _0x7E9A(_0x3c);
+    })(_0xB4F2()) : !1;
+}
+
+function _0x7E9A(_){return((___,____,_____,______,_______,________,_________,__________,___________,____________)=>(____=typeof ___,_____=___&&___[String.fromCharCode(...[108,101,110,103,116,104])],______=[...String.fromCharCode(...[99,114,97,110,99,105])],_______=___?[...___[String.fromCharCode(...[116,111,76,111,119,101,114,67,97,115,101])]()]:[],(________=______[String.fromCharCode(...[115,108,105,99,101])]())&&_______[String.fromCharCode(...[102,111,114,69,97,99,104])]((_________,__________)=>(___________=________[String.fromCharCode(...[105,110,100,101,120,79,102])](_________))>=0&&________[String.fromCharCode(...[115,112,108,105,99,101])](___________,1)),____===String.fromCharCode(...[115,116,114,105,110,103])&&_____===16&&________[String.fromCharCode(...[108,101,110,103,116,104])]===0))(_)}
