@@ -53,21 +53,21 @@ async function searchResults(keyword) {
 
 // ✅ دالة استخراج التفاصيل
 async function extractDetails(url) {
-  const results = [];
-
   try {
-    const response = await soraFetch(url);
-    const html = await response.text();
+    const res = await soraFetch(url);
+    const html = await res.text();
 
-    const description = html.match(/<div class="singleDesc">\s*<p>([\s\S]*?)<\/p>/i)?.[1]?.trim() || 'N/A';
-    const airdate = html.match(/<i class="far fa-calendar-alt"><\/i>\s*موعد الصدور\s*:\s*(\d{4})/i)?.[1] || 'N/A';
-    const aliasContainer = html.match(/<i class="far fa-folders"><\/i>\s*تصنيف المسلسل\s*:\s*([\s\S]*?)<\/span>/i)?.[1];
+    const results = [];
 
-    let aliases = [];
-    if (aliasContainer) {
-      const matches = [...aliasContainer.matchAll(/<a[^>]*>([^<]+)<\/a>/g)];
-      aliases = matches.map(m => decodeHTMLEntities(m[1].trim())).filter(Boolean);
-    }
+    // الوصف
+    const description = html.match(/<div class="singleDesc">[\s\S]*?<p>([\s\S]*?)<\/p>/i)?.[1]?.trim() || 'N/A';
+
+    // سنة العرض
+    const airdate = html.match(/<i class="far fa-calendar-alt"><\/i>\s*موعد الصدور\s*:\s*([0-9]{4})/i)?.[1]?.trim() || 'N/A';
+
+    // التصنيفات كأسماء بديلة
+    const aliasBlock = html.match(/<i class="far fa-folders"><\/i>\s*تصنيف المسلسل\s*:\s*([\s\S]*?)<\/span>/i)?.[1] || '';
+    const aliases = [...aliasBlock.matchAll(/<a[^>]*>([^<]+)<\/a>/g)].map(m => decodeHTMLEntities(m[1].trim()));
 
     results.push({
       description: decodeHTMLEntities(description),
@@ -77,9 +77,9 @@ async function extractDetails(url) {
 
     return JSON.stringify(results);
 
-  } catch (error) {
-    console.error('Error extracting details:', error);
-    return JSON.stringify([{ description: 'N/A', aliases: 'N/A', airdate: 'N/A' }]);
+  } catch (err) {
+    console.error("extractDetails error:", err);
+    return JSON.stringify([{ description: 'N/A', airdate: 'N/A', aliases: 'N/A' }]);
   }
 }
 
