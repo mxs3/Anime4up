@@ -1,25 +1,34 @@
 async function searchResults(keyword) {
-    const url = 'https://anime4up.rest/anime-list-3/';
-    const html = await fetchv2(url);
-
-    if (!html) return [];
+    const possibleDomains = [
+        "https://anime4up.rest",
+        "https://anime4up.bond",
+        "https://4i.nxdwle.shop"
+    ];
 
     const results = [];
-    const regex = /<li><a href="([^"]+)"[^>]*>([^<]+)<\/a><\/li>/g;
-    let match;
 
-    while ((match = regex.exec(html)) !== null) {
-        const href = match[1];
-        const title = decodeHTMLEntities(match[2]);
+    for (const base of possibleDomains) {
+        const url = `${base}/anime-list-3/`;
+        const html = await fetchv2(url);
+        if (!html) continue;
 
-        // طابق الكلمة المفتاحية (بشكل غير حساس لحالة الحروف)
-        if (title.toLowerCase().includes(keyword.toLowerCase())) {
-            results.push({
-                title,
-                href,
-                image: "https://anime4up.rest/wp-content/themes/anime/images/logo.png" // صورة افتراضية
-            });
+        const regex = /<li><a href="([^"]+)"[^>]*>([^<]+)<\/a><\/li>/g;
+        let match;
+
+        while ((match = regex.exec(html)) !== null) {
+            const href = match[1];
+            const title = decodeHTMLEntities(match[2]);
+
+            if (title.toLowerCase().includes(keyword.toLowerCase())) {
+                results.push({
+                    title,
+                    href,
+                    image: `${base}/wp-content/themes/anime/images/logo.png`
+                });
+            }
         }
+
+        if (results.length > 0) break; // لو جاب نتائج من دومين، نوقف هنا
     }
 
     return results;
