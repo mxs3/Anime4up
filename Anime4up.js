@@ -52,15 +52,18 @@ async function searchResults(keyword) {
 }
 
 // ✅ دالة استخراج التفاصيل
-async function extractDetails(url) {
+function extractDetails(html) {
   try {
-    const response = await soraFetch(url);
-    const html = await response.text();
+    // الوصف
+    let description = '';
+    const descContainer = html.match(/<p class="anime-story">([\s\S]*?)<\/p>/);
+    if (descContainer) {
+      description = decodeHTMLEntities(descContainer[1].trim());
+    }
 
+    // باقي العناصر
     const title = decodeHTMLEntities(html.match(/<h1 class="anime-details-title">(.*?)<\/h1>/)?.[1] || '');
     const poster = html.match(/<div class="anime-thumbnail">[\s\S]*?<img[^>]+src="([^"]+)"/)?.[1] || '';
-    const description = decodeHTMLEntities(html.match(/<p class="anime-story">(.*?)<\/p>/s)?.[1] || '');
-
     const type = html.match(/<span>النوع:<\/span>\s*<a[^>]*>([^<]+)<\/a>/)?.[1] || '';
     const status = html.match(/<span>حالة الأنمي:<\/span>\s*<a[^>]*>([^<]+)<\/a>/)?.[1] || '';
     const releaseDate = html.match(/<span>بداية العرض:<\/span>\s*([^<]+)/)?.[1]?.trim() || '';
@@ -68,18 +71,18 @@ async function extractDetails(url) {
     const totalEpisodes = html.match(/<span>عدد الحلقات:<\/span>\s*([^<]+)/)?.[1]?.trim() || '';
     const season = html.match(/<span>الموسم:<\/span>\s*<a[^>]*>([^<]+)<\/a>/)?.[1] || '';
     const source = html.match(/<span>المصدر:<\/span>\s*([^<]+)/)?.[1]?.trim() || '';
+    const trailer = html.match(/<a[^>]+href="(https:\/\/youtu\.be\/[^"]+)"[^>]*anime-trailer/)?.[1] || '';
+    const malId = html.match(/<a[^>]+href="(https:\/\/myanimelist\.net\/anime\/[^"]+)"[^>]*anime-mal/)?.[1] || '';
 
+    // الأنواع (Genres)
     const genres = [];
     const genreList = html.match(/<ul class="anime-genres">([\s\S]*?)<\/ul>/);
     if (genreList) {
-      const matches = [...genreList[1].matchAll(/<a[^>]*>([^<]+)<\/a>/g)];
-      for (const m of matches) {
-        genres.push(decodeHTMLEntities(m[1]));
+      const genreMatches = [...genreList[1].matchAll(/<li>\s*<a[^>]*>([^<]+)<\/a>/g)];
+      for (const match of genreMatches) {
+        genres.push(decodeHTMLEntities(match[1]));
       }
     }
-
-    const trailer = html.match(/<a[^>]+href="(https:\/\/youtu\.be\/[^"]+)"[^>]*anime-trailer/)?.[1] || '';
-    const malId = html.match(/<a[^>]+href="(https:\/\/myanimelist\.net\/anime\/[^"]+)"[^>]*anime-mal/)?.[1] || '';
 
     return JSON.stringify({
       title,
@@ -96,6 +99,7 @@ async function extractDetails(url) {
       trailer,
       malId
     });
+
   } catch (e) {
     console.error("extractDetails error:", e);
     return JSON.stringify({});
