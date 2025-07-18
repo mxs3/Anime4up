@@ -1,23 +1,37 @@
-async function searchResults(query) {
-  const searchUrl = `https://4s.qerxam.shop/?search_param=animes&s=${encodeURIComponent(query)}`;
-  const html = await fetchv2(searchUrl);
-  const $ = cheerio.load(html); // بدون require
-
-  const results = [];
-
-  $('.cat-post-details h2 a').each((_, el) => {
-    const title = $(el).text().trim();
-    const url = $(el).attr('href');
-
-    if (!url || url.includes('/author/') || url.includes('/category/')) return;
-
-    results.push({
-      title,
-      url,
+async function searchResults(keyword) {
+  try {
+    const encoded = encodeURIComponent(keyword.trim());
+    const res = await fetchv2(`https://4s.qerxam.shop/?search_param=animes&s=${encoded}`, {
+      headers: {
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/115.0.0.0 Safari/537.36',
+        'Referer': 'https://4s.qerxam.shop/'
+      }
     });
-  });
+    const html = await res.text();
 
-  return results;
+    const results = [];
+    const regex = /<div class="poster">.*?<img[^>]+src="([^"]+)"[^>]*>.*?<h2 class="title"><a href="([^"]+)"[^>]*>([^<]+)<\/a><\/h2>/gs;
+
+    let match;
+    while ((match = regex.exec(html)) !== null) {
+      const image = match[1].trim();
+      const href = match[2].trim();
+      const title = decodeHTMLEntities(match[3].trim());
+
+      // تجاهل النتائج الغير متعلقة بأنمي فعلي
+      if (!href.includes('/anime/')) continue;
+
+      results.push({ title, href, image });
+    }
+
+    if (results.length === 0) {
+      return JSON.stringify([{ title: 'No results found', href: '', image: '' }]);
+    }
+
+    return JSON.stringify(results);
+  } catch (e) {
+    return JSON.stringify([{ title: 'Error', href: '', image: '', error: e.message }]);
+  }
 }
 
 // دالة لفك ترميز HTML
