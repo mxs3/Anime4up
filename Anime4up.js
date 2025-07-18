@@ -1,35 +1,33 @@
 async function searchResults(keyword) {
-  const domains = [
-    "https://4i.nxdwle.shop",
-    "https://anime4up.rest",
-    "https://anime4up.bond"
-  ];
+  const domain = "https://4i.nxdwle.shop"; // أو rest أو bond
+  const url = `${domain}/wp-admin/admin-ajax.php`;
+  const body = `action=ts_ac_do_search&ts_ac_query=${encodeURIComponent(keyword)}`;
 
-  for (const domain of domains) {
-    const listUrl = `${domain}/anime-list-3/`;
-    const html = await fetchv2(listUrl);
-    if (!html) continue;
+  const res = await fetchv2(url, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/x-www-form-urlencoded'
+    },
+    body: body
+  });
 
-    const regex = /<li>\s*<a href="([^"]+)">([^<]+)<\/a>\s*<\/li>/g;
-    const results = [];
-    let match;
+  const html = res || '';
+  const $ = cheerio.load(html);
+  const results = [];
 
-    while ((match = regex.exec(html)) !== null) {
-      const link = match[1];
-      const rawTitle = decodeHTMLEntities(match[2]);
-      if (rawTitle.toLowerCase().includes(keyword.toLowerCase())) {
-        results.push({
-          title: rawTitle,
-          href: link.startsWith("http") ? link : domain + link,
-          image: `${domain}/wp-content/themes/anime/images/logo.png` // صورة افتراضية
-        });
-      }
+  $('li a').each((i, el) => {
+    const title = decodeHTMLEntities($(el).text().trim());
+    const href = $(el).attr('href');
+    if (href && title) {
+      results.push({
+        title,
+        href: href.startsWith("http") ? href : domain + href,
+        image: `${domain}/wp-content/themes/anime/images/logo.png`
+      });
     }
+  });
 
-    if (results.length > 0) return results;
-  }
-
-  return []; // fallback
+  return results;
 }
 
 function decodeHTMLEntities(text) {
