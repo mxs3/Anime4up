@@ -9,7 +9,7 @@
   "version": "0.0.0",
   "language": "Arabic (SUB)",
   "streamType": "MP4",
-  "quality": "1080",
+  "quality": "Auto",
   "baseUrl": "https://4i.nxdwle.shop/",
   "searchBaseUrl": "https://4i.nxdwle.shop/?s=%s",
   "scriptUrl": "https://raw.githubusercontent.com/mxs3/Anime4up/main/Anime4up.js",
