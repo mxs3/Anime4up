@@ -8,10 +8,15 @@ async function searchResults(keyword) {
     for (const domain of multiDomains) {
         try {
             const searchUrl = domain.trim().replace(/\/+$/, '') + "/?s=" + encodeURIComponent(keyword);
-            console.log("Trying URL:", searchUrl);  // ✅ دي مهمة
+            console.log("🔍 Trying URL:", searchUrl);
 
             const res = await fetchv2(searchUrl);
             const html = await res.text();
+
+            if (!html || html.trim().length < 10) {
+                console.log("⚠️ Empty HTML response from:", searchUrl);
+                continue;
+            }
 
             const parser = new DOMParser();
             const doc = parser.parseFromString(html, "text/html");
@@ -34,9 +39,10 @@ async function searchResults(keyword) {
             });
 
             if (results.length > 0) return results;
+            console.log("ℹ️ No results found on:", searchUrl);
 
         } catch (e) {
-            console.log("Error for domain:", domain, e.message);
+            console.log("❌ Error for domain:", domain, "→", e.message);
         }
     }
 
