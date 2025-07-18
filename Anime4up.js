@@ -111,26 +111,46 @@ async function extractDetails(url) {
 }
 
 async function extractEpisodes(url) {
-  const html = await fetchV2(url).then(res => res.text());
-  const episodes = [];
+  const results = [];
 
-  const regex = /<div class="episodes-card-title">\s*<h3><a href="([^"]+)">([^<]+)<\/a><\/h3>/g;
-  let match;
-
-  while ((match = regex.exec(html)) !== null) {
-    const link = match[1].trim();
-    const title = match[2].trim();
-    const numberMatch = title.match(/(\d+)/);
-    const number = numberMatch ? parseInt(numberMatch[1]) : 0;
-
-    episodes.push({
-      url: link,
-      number,
-      title
+  try {
+    const response = await soraFetch(url, {
+      headers: {
+        "User-Agent": "Sora-Extension",
+        "Referer": url
+      }
     });
-  }
 
-  // ترتيب طبيعي تصاعدي للحلقات
-  episodes.sort((a, b) => a.number - b.number);
-  return episodes;
+    const html = await response.text();
+
+    const episodeRegex = /<a[^>]+href="([^"]+\/episode\/[^"]+)"[^>]*>[\s\S]*?الحلقة\s*(\d+)<\/a>/g;
+
+    let match;
+    while ((match = episodeRegex.exec(html)) !== null) {
+      const episodeUrl = match[1].trim();
+      const episodeNumber = parseInt(match[2].trim(), 10);
+
+      if (!isNaN(episodeNumber)) {
+        results.push({
+          href: episodeUrl,
+          number: episodeNumber
+        });
+      }
+    }
+
+    // ✅ ترتيب طبيعي تصاعدي
+    results.sort((a, b) => a.number - b.number);
+
+    // ✅ fallback لو مفيش أي حلقة
+    if (results.length === 0) {
+      return JSON.stringify([{ href: url, number: 1 }]);
+    }
+
+    return JSON.stringify(results);
+
+  } catch (err) {
+    console.error("extractEpisodes error:", err);
+    // fallback في حال حصل خطأ
+    return JSON.stringify([{ href: url, number: 1 }]);
+  }
 }
