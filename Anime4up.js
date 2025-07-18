@@ -8,8 +8,7 @@ async function searchResults(keyword) {
     for (const domain of multiDomains) {
         try {
             const searchUrl = `${domain}/?s=${encodeURIComponent(keyword)}`;
-            const res = await fetchv2(searchUrl);
-            const html = await res.text();
+            const html = await fetchv2(searchUrl); // ✅ مباشرة بدون .text()
 
             const $ = cheerio.load(html);
             const results = [];
@@ -31,11 +30,11 @@ async function searchResults(keyword) {
             if (results.length > 0) return results;
 
         } catch (e) {
-            // جرب الدومين اللي بعده
+            // لو في خطأ في الدومين ده، نجرب اللي بعده
         }
     }
 
-    return []; // لو مفيش نتائج في أي دومين
+    return []; // لو مفيش نتائج من أي دومين
 }
 
 function decodeHTMLEntities(text) {
