@@ -123,17 +123,17 @@ async function extractEpisodes(url) {
 
     const html = await response.text();
 
-    // 👇 استخراج النوع من صفحة الأنمي
+    // استخراج النوع
     const typeMatch = html.match(/<div class="anime-info">\s*<span>النوع:<\/span>\s*<a[^>]*>([^<]+)<\/a>/);
     const type = typeMatch ? typeMatch[1].trim().toLowerCase() : "";
 
-    // لو Movie نرجع حلقة واحدة فقط
+    // لو النوع فيلم: حلقة واحدة فقط
     if (type.includes("movie")) {
       return JSON.stringify([{ href: url, number: 1 }]);
     }
 
-    // 👇 ريجيكس لاستخراج الحلقات من صفحة مسلسل
-    const episodeRegex = /<a[^>]+href="([^"]+\/episode\/[^"]+)"[^>]*>[\s\S]*?الحلقة\s*(\d+)<\/a>/g;
+    // استخراج الحلقات بشكل دقيق
+    const episodeRegex = /<h3>\s*<a\s+href="([^"]+\/episode\/[^"]+)">[^<]*?الحلقة\s+(\d+)[^<]*<\/a>\s*<\/h3>/g;
 
     let match;
     while ((match = episodeRegex.exec(html)) !== null) {
@@ -148,10 +148,10 @@ async function extractEpisodes(url) {
       }
     }
 
-    // ✅ ترتيب طبيعي تصاعدي
+    // ترتيب طبيعي
     results.sort((a, b) => a.number - b.number);
 
-    // ✅ fallback لو مفيش أي حلقة
+    // fallback
     if (results.length === 0) {
       return JSON.stringify([{ href: url, number: 1 }]);
     }
