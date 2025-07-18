@@ -112,86 +112,65 @@ async function extractDetails(url) {
 
 async function extractEpisodes(url) {
   const results = [];
-  const visited = new Set();
 
-  try {
-    // تابع لجلب الحلقات من صفحة واحدة
-    const fetchPage = async (pageUrl) => {
-      const res = await fetchv2(pageUrl, {
-        headers: {
-          "User-Agent": "Mozilla/5.0",
-          "Referer": url
-        }
-      });
-
-      const html = await res.text();
-
-      // لو Movie، رجع حلقة واحدة فقط
-      const typeMatch = html.match(/<div class="anime-info"><span>النوع:<\/span>\s*([^<]+)<\/div>/i);
-      const type = typeMatch ? typeMatch[1].toLowerCase() : "";
-      if (type.includes("movie") || type.includes("فيلم")) {
-        return [{ href: url, number: 1 }];
-      }
-
-      // استخرج الحلقات
-      const epRegex = /<div class="episodes-card-title">\s*<h3>\s*<a[^>]+href="([^"]+)"[^>]*>\s*الحلقة\s*(\d+)<\/a>/gi;
-      let match;
-      const localResults = [];
-      while ((match = epRegex.exec(html)) !== null) {
-        const href = match[1].trim();
-        const number = parseInt(match[2].trim());
-        if (!isNaN(number)) {
-          localResults.push({ href, number });
-        }
-      }
-
-      return localResults;
-    };
-
-    // ابدأ من الصفحة الأولى
-    const firstPageRes = await fetchv2(url, {
+  const fetchEpisodesFromPage = async (pageUrl) => {
+    const response = await fetchv2(pageUrl, {
       headers: {
         "User-Agent": "Mozilla/5.0",
         "Referer": url
       }
     });
-    const firstHtml = await firstPageRes.text();
 
-    // تحقق من النوع
+    const html = await response.text();
+
+    const episodeRegex = /<div class="episodes-card-title">\s*<h3>\s*<a\s+href="([^"]+)">[^<]*الحلقة\s*(\d+)[^<]*<\/a>/gi;
+
+    let match;
+    while ((match = episodeRegex.exec(html)) !== null) {
+      const episodeUrl = match[1].trim();
+      const episodeNumber = parseInt(match[2].trim(), 10);
+
+      if (!isNaN(episodeNumber)) {
+        results.push({
+          href: episodeUrl,
+          number: episodeNumber
+        });
+      }
+    }
+
+    return html;
+  };
+
+  try {
+    // ✅ أول صفحة
+    const firstHtml = await fetchEpisodesFromPage(url);
+
+    // ✅ استخرج أقصى صفحة من pagination
+    const pageMatches = [...firstHtml.matchAll(/\/page\/(\d+)\//g)];
+    const maxPage = Math.max(1, ...pageMatches.map(m => parseInt(m[1])));
+
+    // ✅ باقي الصفحات
+    for (let i = 2; i <= maxPage; i++) {
+      const pageUrl = url.endsWith('/') ? `${url}page/${i}/` : `${url}/page/${i}/`;
+      await fetchEpisodesFromPage(pageUrl);
+    }
+
+    // ✅ تحقق من النوع (فيلم؟)
     const typeMatch = firstHtml.match(/<div class="anime-info"><span>النوع:<\/span>\s*([^<]+)<\/div>/i);
-    const type = typeMatch ? typeMatch[1].toLowerCase() : "";
+    const type = typeMatch ? typeMatch[1].trim().toLowerCase() : "";
     if (type.includes("movie") || type.includes("فيلم")) {
       return JSON.stringify([{ href: url, number: 1 }]);
     }
 
-    // جلب الصفحة الأولى
-    const firstEpisodes = await fetchPage(url);
-    firstEpisodes.forEach(ep => results.push(ep));
-
-    // استخراج رقم آخر صفحة من pagination
-    const maxPageMatch = [...firstHtml.matchAll(/<a[^>]+href="[^"]+\/page\/(\d+)\/"[^>]*>/gi)];
-    const pages = maxPageMatch.map(m => parseInt(m[1])).filter(n => !isNaN(n));
-    const maxPage = Math.max(1, ...pages);
-
-    // باقي الصفحات
-    for (let i = 2; i <= maxPage; i++) {
-      const pageUrl = url.endsWith('/') ? `${url}page/${i}/` : `${url}/page/${i}/`;
-      if (visited.has(pageUrl)) continue;
-      visited.add(pageUrl);
-
-      const episodes = await fetchPage(pageUrl);
-      episodes.forEach(ep => results.push(ep));
-    }
-
-    // ترتيب طبيعي تصاعدي
+    // ✅ ترتيب طبيعي
     results.sort((a, b) => a.number - b.number);
 
-    // fallback
     if (results.length === 0) {
       return JSON.stringify([{ href: url, number: 1 }]);
     }
 
     return JSON.stringify(results);
+
   } catch (err) {
     console.error("extractEpisodes error:", err);
     return JSON.stringify([{ href: url, number: 1 }]);
