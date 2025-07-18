@@ -6,6 +6,8 @@ async function searchResults(keyword) {
         const response = await fetchv2(searchUrl);
         const html = await response.text();
 
+        if (!html || html.length < 100) return []; // تأكيد إن فيه بيانات
+
         const results = [];
         const cardRegex = /<div class="anime-card[^"]*">([\s\S]*?)<\/div>\s*<\/div>/g;
         let match;
@@ -20,7 +22,6 @@ async function searchResults(keyword) {
             const url = urlMatch?.[1]?.trim();
             const titleRaw = titleMatch?.[1]?.trim() ?? '';
             const image = imgMatch?.[1]?.trim() ?? '';
-
             const title = decodeHTMLEntities(titleRaw);
 
             if (url && title && !url.includes("/category/")) {
@@ -28,14 +29,13 @@ async function searchResults(keyword) {
             }
         }
 
-        return results;
+        return results.length > 0 ? results : [];
     } catch (err) {
         console.log("Anime4up search error:", err);
         return [];
     }
 }
 
-// مرفق: دالة المساعدة لفك ترميز HTML
 function decodeHTMLEntities(text) {
     return text
         .replace(/&#(\d+);/g, (_, dec) => String.fromCharCode(dec))
