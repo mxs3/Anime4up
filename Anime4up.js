@@ -52,51 +52,31 @@ async function searchResults(keyword) {
 }
 
 // ✅ دالة استخراج التفاصيل
-async function extractDetails(url) {
-  try {
-    const res = await fetchv2(url, {
-      headers: {
-        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/114.0.0.0 Safari/537.36',
-        'Referer': 'https://4s.qerxam.shop/'
-      }
-    });
+function extractDetails(html) {
+  const details = {
+    description: "غير متوفر",
+    airdate: "غير معروف",
+    genres: []
+  };
 
-    const html = await res.text();
-
-    const details = {
-      description: 'غير متوفر',
-      airdate: 'غير معروف',
-      genres: []
-    };
-
-    // الوصف
-    const descMatch = html.match(/<p class="anime-story">([\s\S]*?)<\/p>/);
-    if (descMatch && descMatch[1].trim()) {
-      details.description = decodeHTMLEntities(descMatch[1].trim());
-    }
-
-    // تاريخ العرض
-    const airdateMatch = html.match(/<span>بداية العرض:<\/span>\s*([0-9]+)/);
-    if (airdateMatch && airdateMatch[1].trim()) {
-      details.airdate = airdateMatch[1].trim();
-    }
-
-    // التصنيفات
-    const genresMatch = html.match(/<ul class="anime-genres">([\s\S]*?)<\/ul>/);
-    if (genresMatch) {
-      const genreItems = [...genresMatch[1].matchAll(/<a[^>]*>([^<]+)<\/a>/g)];
-      if (genreItems.length > 0) {
-        details.genres = genreItems.map(m => decodeHTMLEntities(m[1].trim()));
-      }
-    }
-
-    return JSON.stringify(details);
-  } catch (err) {
-    console.error("extractDetails error:", err);
-    return JSON.stringify({
-      description: 'خطأ أثناء التحميل',
-      airdate: 'غير معروف',
-      genres: []
-    });
+  // الوصف
+  const descriptionMatch = html.match(/<p class="anime-story">([\s\S]*?)<\/p>/);
+  if (descriptionMatch && descriptionMatch[1]) {
+    details.description = decodeHTMLEntities(descriptionMatch[1].trim());
   }
+
+  // سنة العرض
+  const airdateMatch = html.match(/<span>\s*بداية العرض:\s*<\/span>\s*([0-9]+)/);
+  if (airdateMatch && airdateMatch[1]) {
+    details.airdate = airdateMatch[1].trim();
+  }
+
+  // التصنيفات
+  const genresBlockMatch = html.match(/<ul class="anime-genres">([\s\S]*?)<\/ul>/);
+  if (genresBlockMatch) {
+    const genreMatches = [...genresBlockMatch[1].matchAll(/<a[^>]*>([^<]+)<\/a>/g)];
+    details.genres = genreMatches.map(m => decodeHTMLEntities(m[1].trim()));
+  }
+
+  return JSON.stringify(details);
 }
