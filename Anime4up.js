@@ -67,16 +67,18 @@ function extractDetails(html) {
   const season = html.match(/<span>الموسم:<\/span>\s*<a[^>]*>(.*?)<\/a>/)?.[1] || '';
   const source = html.match(/<span>المصدر:<\/span>\s*([^<]+)/)?.[1]?.trim() || '';
 
+  // استخراج التصنيفات
   const genres = [];
-  const genresMatch = [...html.matchAll(/<ul class="anime-genres">([\s\S]*?)<\/ul>/g)];
-  if (genresMatch.length > 0) {
-    const liMatches = [...genresMatch[0][1].matchAll(/<li>\s*<a[^>]*>(.*?)<\/a>\s*<\/li>/g)];
+  const genreList = html.match(/<ul class="anime-genres">([\s\S]*?)<\/ul>/);
+  if (genreList) {
+    const liMatches = [...genreList[1].matchAll(/<li>\s*<a[^>]*>(.*?)<\/a>\s*<\/li>/g)];
     for (const match of liMatches) {
       genres.push(match[1].trim());
     }
   }
 
-  const malLink = html.match(/<a[^>]+href="(https:\/\/myanimelist\.net\/anime\/[^"]+)"[^>]*anime-mal/)?.[1] || '';
+  // روابط إضافية
+  const malId = html.match(/<a[^>]+href="(https:\/\/myanimelist\.net\/anime\/[^"]+)"[^>]*anime-mal/)?.[1] || '';
   const trailer = html.match(/<a[^>]+href="(https:\/\/youtu\.be\/[^"]+)"[^>]*anime-trailer/)?.[1] || '';
 
   return JSON.stringify({
@@ -91,7 +93,7 @@ function extractDetails(html) {
     season,
     source,
     genres,
-    malId: malLink,
+    malId,
     trailer
   });
 }
