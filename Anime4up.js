@@ -161,7 +161,6 @@ async function extractEpisodes(url) {
 }
 
 async function extractStreamUrl(url) {
-  if (!_0xCheck()) return 'https://files.catbox.moe/avolvc.mp4';
   const multiStreams = { streams: [], subtitles: null };
   try {
     const html = await fetchv2(url);
