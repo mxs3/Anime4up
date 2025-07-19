@@ -1,17 +1,3 @@
-function decodeHTMLEntities(text) {
-  const entities = {
-    '&amp;': '&',
-    '&lt;': '<',
-    '&gt;': '>',
-    '&quot;': '"',
-    '&#039;': "'",
-    '&apos;': "'",
-    '&nbsp;': ' ',
-    '&#39;': "'"
-  };
-  return text.replace(/&[a-zA-Z0-9#]+;/g, match => entities[match] || match);
-}
-
 async function searchResults(keyword) {
   try {
     const url = `https://4s.qerxam.shop/?search_param=animes&s=${encodeURIComponent(keyword)}`;
@@ -306,4 +292,18 @@ async function extractUqload(url) {
             'User-Agent': 'Mozilla/5.0'
         }
     }];
+}
+
+function decodeHTMLEntities(text) {
+  const entities = {
+    '&amp;': '&',
+    '&lt;': '<',
+    '&gt;': '>',
+    '&quot;': '"',
+    '&#039;': "'",
+    '&apos;': "'",
+    '&nbsp;': ' ',
+    '&#39;': "'"
+  };
+  return text.replace(/&[a-zA-Z0-9#]+;/g, match => entities[match] || match);
 }
