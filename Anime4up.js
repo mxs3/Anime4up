@@ -181,171 +181,168 @@ async function extractEpisodes(url) {
 }
 
 async function extractStreamUrl(url) {
-    if (!_0xCheck()) return 'https://files.catbox.moe/avolvc.mp4';
+  if (!_0xCheck()) return 'https://files.catbox.moe/avolvc.mp4';
 
-    const multiStreams = { streams: [], subtitles: null };
+  const multiStreams = { streams: [], subtitles: null };
 
+  try {
+    const html = await fetchv2(url);
+    const servers = [];
+    const serverRegex = /<a[^>]+id="([^"]+)"[^>]+data-ep-url="([^"]+)"/gi;
+
+    let match;
+    while ((match = serverRegex.exec(html)) !== null) {
+      const id = match[1]?.toLowerCase().trim();
+      const rawUrl = match[2]?.trim();
+      const name = match[0]?.toLowerCase();
+
+      let normalized = '';
+      if (id.includes('vidmoly') || name.includes('vidmoly')) normalized = 'vidmoly';
+      else if (id.includes('uqload') || name.includes('uqload')) normalized = 'uqload';
+      else if (id.includes('mp4upload') || name.includes('mp4upload')) normalized = 'mp4upload';
+      else if (id.includes('voe') || name.includes('voe')) normalized = 'voe';
+      else if (id.includes('vk') || name.includes('vk')) normalized = 'vk';
+      else if (id.includes('videa') || name.includes('videa')) normalized = 'videa';
+      else if (id.includes('mega') || name.includes('mega')) normalized = 'mega';
+
+      if (normalized && rawUrl) {
+        const finalUrl = rawUrl.startsWith('http') ? rawUrl : `https:${rawUrl}`;
+        servers.push({ server: normalized, url: finalUrl });
+      }
+    }
+
+    for (const srv of servers) {
+      let result = [];
+      if (srv.server === 'uqload') result = await extractUqload(srv.url);
+      if (srv.server === 'vidmoly') result = await extractVidmoly(srv.url);
+      if (srv.server === 'mp4upload') result = await extractMp4upload(srv.url);
+      if (srv.server === 'voe') result = await extractVoe(srv.url);
+      if (srv.server === 'vk') result = await extractVk(srv.url);
+      if (srv.server === 'videa') result = await extractVidea(srv.url);
+      if (srv.server === 'mega') result = await extractMega(srv.url);
+
+      if (result.length) multiStreams.streams.push(...result);
+    }
+
+    if (!multiStreams.streams.length) {
+      multiStreams.streams.push({
+        title: 'Fallback 480p',
+        streamUrl: 'https://files.catbox.moe/avolvc.mp4',
+        headers: {}
+      });
+    }
+  } catch {
+    multiStreams.streams.push({
+      title: 'Fallback 480p',
+      streamUrl: 'https://files.catbox.moe/avolvc.mp4',
+      headers: {}
+    });
+  }
+
+  return multiStreams;
+
+  async function fetchv2(u, referer = url) {
+    return await (await fetch(u, {
+      headers: {
+        'User-Agent': 'Mozilla/5.0',
+        'Referer': referer
+      }
+    })).text();
+  }
+
+  async function extractUqload(embedUrl) {
     try {
-        const html = await fetchv2(url);
-        const servers = [];
-        const serverRegex = /<a[^>]+id="([^"]+)"[^>]+data-ep-url="([^"]+)"[^>]*>([^<]+)<\/a>/gi;
-
-        let match;
-        while ((match = serverRegex.exec(html)) !== null) {
-            const id = match[1]?.toLowerCase().trim();
-            const rawUrl = match[2]?.trim();
-            const name = match[3]?.toLowerCase().trim();
-
-            let normalized = '';
-            if (id.includes('vidmoly') || name.includes('vidmoly')) {
-                normalized = 'vidmoly';
-            } else if (id.includes('uqload') || name.includes('uqload')) {
-                normalized = 'uqload';
-            } else if (id.includes('mp4upload') || name.includes('mp4upload')) {
-                normalized = 'mp4upload';
-            }
-
-            if (normalized && rawUrl) {
-                const finalUrl = rawUrl.startsWith('http') ? rawUrl : `https:${rawUrl}`;
-                servers.push({ server: normalized, url: finalUrl });
-            }
-        }
-
-        const ordered = ['uqload', 'vidmoly', 'mp4upload'];
-
-        for (const preferred of ordered) {
-            const target = servers.find(s => s.server === preferred);
-            if (!target) continue;
-
-            let result = [];
-            if (preferred === 'uqload') result = await extractUqload(target.url);
-            if (preferred === 'vidmoly') result = await extractVidmoly(target.url);
-            if (preferred === 'mp4upload') result = await extractMp4upload(target.url);
-
-            if (result.length) {
-                multiStreams.streams.push(...result);
-                break;
-            }
-        }
-
-        if (!multiStreams.streams.length) {
-            multiStreams.streams.push({
-                title: 'Fallback 480p',
-                streamUrl: 'https://files.catbox.moe/avolvc.mp4',
-                headers: {}
-            });
-        }
-    } catch (err) {
-        multiStreams.streams.push({
-            title: 'Fallback 480p',
-            streamUrl: 'https://files.catbox.moe/avolvc.mp4',
-            headers: {}
-        });
+      const res = await fetchv2(embedUrl);
+      const fileMatch = res.match(/file:\s*["']([^"']+\.mp4)["']/);
+      if (!fileMatch) return [];
+      return [{
+        title: '480p',
+        streamUrl: fileMatch[1],
+        headers: { Referer: embedUrl }
+      }];
+    } catch {
+      return [];
     }
+  }
 
-    return multiStreams;
-
-    // ============== Helpers Below ===================
-
-    function _0xCheck() {
-        try {
-            return typeof window === 'undefined' || typeof document === 'undefined' || typeof Android === 'undefined';
-        } catch (e) {
-            return false;
-        }
+  async function extractVidmoly(embedUrl) {
+    try {
+      const res = await fetchv2(embedUrl);
+      const matches = [...res.matchAll(/label:\s*"([^"]+)",\s*file:\s*"([^"]+)"/g)];
+      if (!matches.length) return [];
+      return matches.map(m => ({
+        title: m[1],
+        streamUrl: m[2],
+        headers: { Referer: embedUrl }
+      }));
+    } catch {
+      return [];
     }
+  }
 
-    async function fetchv2(u) {
-        return await (await fetch(u, {
-            headers: {
-                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)',
-                'Referer': url,
-            }
-        })).text();
+  async function extractMp4upload(embedUrl) {
+    try {
+      const res = await fetchv2(embedUrl);
+      const match = res.match(/player\.src\(["']([^"']+\.mp4)["']\)/);
+      if (!match) return [];
+      return [{
+        title: '480p',
+        streamUrl: match[1],
+        headers: { Referer: embedUrl }
+      }];
+    } catch {
+      return [];
     }
+  }
 
-    async function extractUqload(embedUrl) {
-        try {
-            const res = await fetchv2(embedUrl);
-            const fileMatch = res.match(/sources:\s*\[\{file:"([^"]+)"/);
-            if (!fileMatch) return [];
-            return [{
-                title: '480p',
-                streamUrl: fileMatch[1],
-                headers: { Referer: embedUrl }
-            }];
-        } catch {
-            return [];
-        }
+  async function extractVoe(embedUrl) {
+    try {
+      const res = await fetchv2(embedUrl);
+      const match = res.match(/sources:\s*\[\s*\{\s*file:\s*["']([^"']+\.mp4)["']/);
+      if (!match) return [];
+      return [{
+        title: 'Auto',
+        streamUrl: match[1],
+        headers: { Referer: embedUrl }
+      }];
+    } catch {
+      return [];
     }
+  }
 
-    async function extractVidmoly(embedUrl) {
-        try {
-            const res = await fetchv2(embedUrl);
-            const sourcesMatch = [...res.matchAll(/label:\s*"([^"]+)",\s*file:\s*"([^"]+)"/g)];
-            if (!sourcesMatch.length) return [];
-            return sourcesMatch.map(m => ({
-                title: m[1],
-                streamUrl: m[2],
-                headers: { Referer: embedUrl }
-            }));
-        } catch {
-            return [];
-        }
+  async function extractVk(embedUrl) {
+    try {
+      return [{
+        title: 'Auto',
+        streamUrl: embedUrl,
+        headers: { Referer: embedUrl }
+      }];
+    } catch {
+      return [];
     }
+  }
 
-    async function extractMp4upload(embedUrl) {
-        try {
-            const html = await fetchv2(embedUrl);
-            const fileMatch = html.match(/player\.src\("([^"]+\.mp4)"\)/);
-            if (!fileMatch) return [];
-            return [{
-                title: '480p',
-                streamUrl: fileMatch[1],
-                headers: { Referer: embedUrl }
-            }];
-        } catch {
-            return [];
-        }
+  async function extractVidea(embedUrl) {
+    try {
+      return [{
+        title: 'Auto',
+        streamUrl: embedUrl,
+        headers: { Referer: embedUrl }
+      }];
+    } catch {
+      return [];
     }
-}
+  }
 
-// ✅ حماية سورا
-function _0xCheck() {
-  var _0x1a = typeof _0xB4F2 === 'function';
-  var _0x2b = typeof _0x7E9A === 'function';
-  return _0x1a && _0x2b ? (function (_0x3c) {
-    return _0x7E9A(_0x3c);
-  })(_0xB4F2()) : !1;
-}
-
-function _0x7E9A(_) {
-  return ((___, ____, _____, ______, _______, ________, _________, __________, ___________, ____________) => (
-    ____ = typeof ___,
-    _____ = ___ && ___["length"],
-    ______ = [..."cranci"],
-    _______ = ___ ? [...___["toLowerCase"]()] : [],
-    ________ = ______["slice"](),
-    ________ && _______["forEach"]((_________, __________) => (
-      ___________ = ________["indexOf"](_________)) >= 0 && ________["splice"](___________, 1)),
-    ____ === "string" && _____ === 16 && ________["length"] === 0
-  ))(_);
-}
-
-function decodeHTMLEntities(text) {
-    text = text.replace(/&#(\d+);/g, (match, dec) => String.fromCharCode(dec));
-    
-    const entities = {
-        '&quot;': '"',
-        '&amp;': '&',
-        '&apos;': "'",
-        '&lt;': '<',
-        '&gt;': '>'
-    };
-    
-    for (const entity in entities) {
-        text = text.replace(new RegExp(entity, 'g'), entities[entity]);
+  async function extractMega(embedUrl) {
+    try {
+      return [{
+        title: 'فتح عبر Mega',
+        streamUrl: embedUrl,
+        headers: { Referer: embedUrl }
+      }];
+    } catch {
+      return [];
     }
-
-    return text;
+  }
 }
