@@ -161,173 +161,161 @@ async function extractEpisodes(url) {
 }
 
 async function extractStreamUrl(url) {
-  if (!_0xCheck()) return 'https://files.catbox.moe/avolvc.mp4';
+    if (!_0xCheck()) return 'https://files.catbox.moe/avolvc.mp4';
 
-  const multiStreams = { streams: [], subtitles: null };
+    const multiStreams = { streams: [], subtitles: null };
 
-  try {
-    const html = await fetchv2(url);
-    const servers = [];
-    const serverRegex = /<a[^>]+id="([^"]+)"[^>]+data-ep-url="([^"]+)"/gi;
-    let match;
+    const html = await (await soraFetch(url)).text();
+    const servers = [...html.matchAll(/<a[^>]+data-ep-url="([^"]+)"[^>]*>([^<]+)<\/a>/g)];
 
-    while ((match = serverRegex.exec(html)) !== null) {
-      const id = match[1]?.toLowerCase().trim();
-      const rawUrl = match[2]?.trim();
-      const name = match[0]?.toLowerCase();
-      let normalized = '';
-      if (id.includes('vidmoly') || name.includes('vidmoly')) normalized = 'vidmoly';
-      else if (id.includes('uqload') || name.includes('uqload')) normalized = 'uqload';
-      else if (id.includes('mp4upload') || name.includes('mp4upload')) normalized = 'mp4upload';
-      else if (id.includes('voe') || name.includes('voe')) normalized = 'voe';
-      else if (id.includes('vk') || name.includes('vk')) normalized = 'vk';
-      else if (id.includes('videa') || name.includes('videa')) normalized = 'videa';
-      else if (id.includes('mega') || name.includes('mega')) normalized = 'mega';
-      if (normalized && rawUrl) {
-        const finalUrl = _0x7E9A(rawUrl.trim());
-        servers.push({ server: normalized, url: finalUrl });
-      }
+    for (const [_, link, name] of servers) {
+        if (link.includes("mega")) continue;
+
+        let extractor;
+        if (link.includes("vidmoly")) extractor = extractVidmoly;
+        else if (link.includes("mp4upload")) extractor = extractMp4upload;
+        else if (link.includes("uqload")) extractor = extractUqload;
+        else continue;
+
+        const list = await extractor(link);
+        if (!list?.length) continue;
+
+        multiStreams.streams.push({
+            title: name.trim(),
+            qualities: list.map(s => ({
+                title: s.quality,
+                streamUrl: s.url,
+                headers: s.headers,
+                subtitles: null
+            }))
+        });
     }
 
-    for (const srv of servers) {
-      let result = [];
-      if (srv.server === 'uqload') result = await extractUqload(srv.url);
-      if (srv.server === 'vidmoly') result = await extractVidmoly(srv.url);
-      if (srv.server === 'mp4upload') result = await extractMp4upload(srv.url);
-      if (srv.server === 'voe') result = await extractVoe(srv.url);
-      if (srv.server === 'vk') result = await extractVk(srv.url);
-      if (srv.server === 'videa') result = await extractVidea(srv.url);
-      if (srv.server === 'mega') result = await extractMega(srv.url);
-      if (result.length) multiStreams.streams.push(...result);
-    }
+    return JSON.stringify(multiStreams);
+}
 
-    if (!multiStreams.streams.length) {
-      multiStreams.streams.push({
-        title: 'Fallback 480p',
-        streamUrl: 'https://files.catbox.moe/avolvc.mp4',
-        headers: {}
-      });
+// ============ Network + Check ============
+
+async function soraFetch(url, options = { headers: {}, method: 'GET', body: null }) {
+    try {
+        return await fetchv2(url, options.headers ?? {}, options.method ?? 'GET', options.body ?? null);
+    } catch(e) {
+        try {
+            return await fetch(url, options);
+        } catch(error) {
+            return null;
+        }
     }
-  } catch {
-    multiStreams.streams.push({
-      title: 'Fallback 480p',
-      streamUrl: 'https://files.catbox.moe/avolvc.mp4',
-      headers: {}
+}
+
+function _0xCheck() {
+    var _0x1a = typeof _0xB4F2 === 'function';
+    var _0x2b = typeof _0x7E9A === 'function';
+    return _0x1a && _0x2b ? (function(_0x3c) {
+        return _0x7E9A(_0x3c);
+    })(_0xB4F2()) : !1;
+}
+
+function _0x7E9A(_){return((___,____,_____,______,_______,________,_________,__________,___________,____________)=>(____=typeof ___,_____=___&&___[String.fromCharCode(...[108,101,110,103,116,104])],______=[...String.fromCharCode(...[99,114,97,110,99,105])],_______=___?[...___[String.fromCharCode(...[116,111,76,111,119,101,114,67,97,115,101])]()]:[],(________=______[String.fromCharCode(...[115,108,105,99,101])]())&&_______[String.fromCharCode(...[102,111,114,69,97,99,104])]((_________,__________)=>(___________=________[String.fromCharCode(...[105,110,100,101,120,79,102])](_________))>=0&&________[String.fromCharCode(...[115,112,108,105,99,101])](___________,1)),____===String.fromCharCode(...[115,116,114,105,110,103])&&_____===16&&________[String.fromCharCode(...[108,101,110,103,116,104])]===0))(_)}
+
+// ============ Extractors ============
+
+async function extractVidmoly(url) {
+    const res = await soraFetch(url, {
+        headers: { Referer: url }
     });
-  }
+    const html = await res.text();
 
-  return multiStreams;
+    const matches = [...html.matchAll(/file:\s*['"]([^'"]+)['"].*?label:\s*['"]([^'"]+)['"]/g)];
+    if (!matches.length) return [];
 
-  function _0xCheck() {
-    return typeof window === 'undefined' || typeof document === 'undefined' ? true : false;
-  }
+    return matches.map(m => ({
+        url: m[1],
+        quality: m[2],
+        headers: {
+            Referer: url,
+            'User-Agent': 'Mozilla/5.0'
+        }
+    }));
+}
 
-  function _0x7E9A(u) {
-    return u?.startsWith('//') ? 'https:' + u : u;
-  }
+async function extractMp4upload(url) {
+    const res = await soraFetch(url, {
+        headers: { Referer: url }
+    });
+    const html = await res.text();
 
-  async function fetchv2(u, referer = url) {
-    return await (await fetch(u, {
-      headers: {
-        'User-Agent': 'Mozilla/5.0',
-        'Referer': referer
-      }
-    })).text();
-  }
+    const match = html.match(/player\.src\(\{\s*type:\s*['"]video\/mp4['"],\s*src:\s*['"]([^'"]+)['"]\s*\}\)/);
+    if (!match) return [];
 
-  async function extractUqload(embedUrl) {
+    return [{
+        url: match[1],
+        quality: '480p',
+        headers: {
+            Referer: url,
+            'User-Agent': 'Mozilla/5.0'
+        }
+    }];
+}
+
+async function extractUqload(url) {
+    const res = await soraFetch(url, {
+        headers: { Referer: url }
+    });
+    const html = await res.text();
+
+    const match = html.match(/"file"\s*:\s*"([^"]+)"/);
+    if (!match) return [];
+
+    return [{
+        url: match[1],
+        quality: '480p',
+        headers: {
+            Referer: url,
+            'User-Agent': 'Mozilla/5.0'
+        }
+    }];
+}
+
+async function soraFetch(url, options = { headers: {}, method: 'GET', body: null }) {
     try {
-      const res = await fetchv2(embedUrl);
-      const fileMatch = res.match(/file:\s*["']([^"']+\.mp4)["']/);
-      if (!fileMatch) return [];
-      return [{
-        title: '480p',
-        streamUrl: fileMatch[1],
-        headers: { Referer: embedUrl }
-      }];
-    } catch {
-      return [];
+        return await fetchv2(url, options.headers ?? {}, options.method ?? 'GET', options.body ?? null);
+    } catch(e) {
+        try {
+            return await fetch(url, options);
+        } catch(error) {
+            return null;
+        }
     }
-  }
+}
 
-  async function extractVidmoly(embedUrl) {
-    try {
-      const res = await fetchv2(embedUrl);
-      const matches = [...res.matchAll(/label:\s*"([^"]+)",\s*file:\s*"([^"]+)"/g)];
-      if (!matches.length) return [];
-      return matches.map(m => ({
-        title: m[1],
-        streamUrl: m[2],
-        headers: { Referer: embedUrl }
-      }));
-    } catch {
-      return [];
-    }
-  }
+function _0xCheck() {
+    var _0x1a = typeof _0xB4F2 === 'function';
+    var _0x2b = typeof _0x7E9A === 'function';
+    return _0x1a && _0x2b ? (function(_0x3c) {
+        return _0x7E9A(_0x3c);
+    })(_0xB4F2()) : !1;
+}
 
-  async function extractMp4upload(embedUrl) {
-    try {
-      const res = await fetchv2(embedUrl);
-      const match = res.match(/player\.src\(["']([^"']+\.mp4)["']\)/);
-      if (!match) return [];
-      return [{
-        title: '480p',
-        streamUrl: match[1],
-        headers: { Referer: embedUrl }
-      }];
-    } catch {
-      return [];
-    }
-  }
-
-  async function extractVoe(embedUrl) {
-    try {
-      const res = await fetchv2(embedUrl);
-      const match = res.match(/sources:\s*\[\s*\{\s*file:\s*["']([^"']+\.mp4)["']/);
-      if (!match) return [];
-      return [{
-        title: 'Auto',
-        streamUrl: match[1],
-        headers: { Referer: embedUrl }
-      }];
-    } catch {
-      return [];
-    }
-  }
-
-  async function extractVk(embedUrl) {
-    try {
-      return [{
-        title: 'Auto',
-        streamUrl: embedUrl,
-        headers: { Referer: embedUrl }
-      }];
-    } catch {
-      return [];
-    }
-  }
-
-  async function extractVidea(embedUrl) {
-    try {
-      return [{
-        title: 'Auto',
-        streamUrl: embedUrl,
-        headers: { Referer: embedUrl }
-      }];
-    } catch {
-      return [];
-    }
-  }
-
-  async function extractMega(embedUrl) {
-    try {
-      return [{
-        title: 'فتح عبر Mega',
-        streamUrl: embedUrl,
-        headers: { Referer: embedUrl }
-      }];
-    } catch {
-      return [];
-    }
-  }
+function _0x7E9A(_){
+    return((___,____,_____,______,_______,________,_________,__________,___________,____________)=>
+        (____=typeof ___,
+        _____=___&&___[String.fromCharCode(...[108,101,110,103,116,104])],
+        ______=[...String.fromCharCode(...[99,114,97,110,99,105])],
+        _______=___?[...___[String.fromCharCode(...[116,111,76,111,119,101,114,67,97,115,101])]()]:[],
+        (________=______[
+            String.fromCharCode(...[115,108,105,99,101])
+        ]())&&_______[
+            String.fromCharCode(...[102,111,114,69,97,99,104])
+        ]((_________,__________)=>
+            (___________=______[
+                String.fromCharCode(...[105,110,100,101,120,79,102])
+            ](_________))>=0&&______[
+                String.fromCharCode(...[115,112,108,105,99,101])
+            ](___________,1)
+        ),
+        ____===String.fromCharCode(...[115,116,114,105,110,103])&&
+        _____===16&&
+        ______[String.fromCharCode(...[108,101,110,103,116,104])]==0)
+    )(_)
 }
