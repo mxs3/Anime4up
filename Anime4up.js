@@ -181,125 +181,133 @@ async function extractEpisodes(url) {
 }
 
 async function extractStreamUrl(url) {
-  if (!_0xCheck()) return 'https://files.catbox.moe/avolvc.mp4';
+    if (!_0xCheck()) return 'https://files.catbox.moe/avolvc.mp4';
 
-  const multiStreams = {
-    streams: [],
-    subtitles: null
-  };
+    const multiStreams = { streams: [], subtitles: null };
 
-  try {
-    const res = await fetchv2(url, {
-      headers: {
-        'User-Agent': 'Mozilla/5.0',
-        'Referer': url
-      }
-    });
+    try {
+        const html = await fetchv2(url);
+        const servers = [];
+        const serverRegex = /<a[^>]+id="([^"]+)"[^>]+data-ep-url="([^"]+)"[^>]*>([^<]+)<\/a>/gi;
 
-    const html = await res.text();
+        let match;
+        while ((match = serverRegex.exec(html)) !== null) {
+            const id = match[1]?.toLowerCase().trim();
+            const rawUrl = match[2]?.trim();
+            const name = match[3]?.toLowerCase().trim();
 
-    // استخراج روابط السيرفرات من data-ep-url
-    const serverRegex = /<a[^>]+data-ep-url="([^"]+)"[^>]*>(.*?)<\/a>/gi;
-    let match;
+            let normalized = '';
+            if (id.includes('vidmoly') || name.includes('vidmoly')) {
+                normalized = 'vidmoly';
+            } else if (id.includes('uqload') || name.includes('uqload')) {
+                normalized = 'uqload';
+            } else if (id.includes('mp4upload') || name.includes('mp4upload')) {
+                normalized = 'mp4upload';
+            }
 
-    while ((match = serverRegex.exec(html)) !== null) {
-      let embedUrl = match[1].trim();
-      const serverTitle = match[2].replace(/<[^>]+>/g, '').trim();
-
-      if (embedUrl.startsWith('//')) {
-        embedUrl = 'https:' + embedUrl;
-      }
-
-      const lower = embedUrl.toLowerCase();
-
-      try {
-        if (lower.includes('mp4upload')) {
-          const stream = await extractFromMp4upload(embedUrl);
-          if (stream?.url) {
-            multiStreams.streams.push({
-              title: getQualityFromUrlOrTitle(serverTitle),
-              streamUrl: stream.url,
-              headers: stream.headers
-            });
-          }
-        } else if (lower.includes('vidmoly')) {
-          const stream = await extractFromVidmoly(embedUrl);
-          if (stream?.url) {
-            multiStreams.streams.push({
-              title: getQualityFromUrlOrTitle(serverTitle),
-              streamUrl: stream.url,
-              headers: stream.headers
-            });
-          }
+            if (normalized && rawUrl) {
+                const finalUrl = rawUrl.startsWith('http') ? rawUrl : `https:${rawUrl}`;
+                servers.push({ server: normalized, url: finalUrl });
+            }
         }
-      } catch (err) {
-        console.error("Error extracting from:", embedUrl, err.message);
-      }
+
+        const ordered = ['uqload', 'vidmoly', 'mp4upload'];
+
+        for (const preferred of ordered) {
+            const target = servers.find(s => s.server === preferred);
+            if (!target) continue;
+
+            let result = [];
+            if (preferred === 'uqload') result = await extractUqload(target.url);
+            if (preferred === 'vidmoly') result = await extractVidmoly(target.url);
+            if (preferred === 'mp4upload') result = await extractMp4upload(target.url);
+
+            if (result.length) {
+                multiStreams.streams.push(...result);
+                break;
+            }
+        }
+
+        if (!multiStreams.streams.length) {
+            multiStreams.streams.push({
+                title: 'Fallback 480p',
+                streamUrl: 'https://files.catbox.moe/avolvc.mp4',
+                headers: {}
+            });
+        }
+    } catch (err) {
+        multiStreams.streams.push({
+            title: 'Fallback 480p',
+            streamUrl: 'https://files.catbox.moe/avolvc.mp4',
+            headers: {}
+        });
     }
 
-    // fallback
-    if (multiStreams.streams.length === 0) {
-      multiStreams.streams.push({
-        title: "SD (Fallback)",
-        streamUrl: "https://files.catbox.moe/avolvc.mp4",
-        headers: {}
-      });
+    return multiStreams;
+
+    // ============== Helpers Below ===================
+
+    function _0xCheck() {
+        try {
+            return typeof window === 'undefined' || typeof document === 'undefined' || typeof Android === 'undefined';
+        } catch (e) {
+            return false;
+        }
     }
 
-    return JSON.stringify(multiStreams);
+    async function fetchv2(u) {
+        return await (await fetch(u, {
+            headers: {
+                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)',
+                'Referer': url,
+            }
+        })).text();
+    }
 
-  } catch (err) {
-    console.error("extractStreamUrl error:", err);
-    return JSON.stringify({
-      streams: [{
-        title: "SD (Fallback)",
-        streamUrl: "https://files.catbox.moe/avolvc.mp4",
-        headers: {}
-      }],
-      subtitles: null
-    });
-  }
-}
+    async function extractUqload(embedUrl) {
+        try {
+            const res = await fetchv2(embedUrl);
+            const fileMatch = res.match(/sources:\s*\[\{file:"([^"]+)"/);
+            if (!fileMatch) return [];
+            return [{
+                title: '480p',
+                streamUrl: fileMatch[1],
+                headers: { Referer: embedUrl }
+            }];
+        } catch {
+            return [];
+        }
+    }
 
-// ✅ extractor لسيرفر mp4upload
-async function extractFromMp4upload(embedUrl) {
-  const headers = {
-    "Referer": embedUrl,
-    "User-Agent": "Mozilla/5.0"
-  };
+    async function extractVidmoly(embedUrl) {
+        try {
+            const res = await fetchv2(embedUrl);
+            const sourcesMatch = [...res.matchAll(/label:\s*"([^"]+)",\s*file:\s*"([^"]+)"/g)];
+            if (!sourcesMatch.length) return [];
+            return sourcesMatch.map(m => ({
+                title: m[1],
+                streamUrl: m[2],
+                headers: { Referer: embedUrl }
+            }));
+        } catch {
+            return [];
+        }
+    }
 
-  const res = await fetchv2(embedUrl, headers);
-  const html = await res.text();
-
-  const match = html.match(/player\.src\("([^"]+\.mp4)"\)/);
-  const url = match ? match[1] : null;
-
-  return { url, headers };
-}
-
-// ✅ extractor لسيرفر vidmoly
-async function extractFromVidmoly(embedUrl) {
-  const headers = {
-    "Referer": embedUrl,
-    "User-Agent": "Mozilla/5.0"
-  };
-
-  const res = await fetchv2(embedUrl, headers);
-  const html = await res.text();
-
-  const match = html.match(/sources:\s*\[\s*\{\s*file:\s*"([^"]+\.mp4)"/);
-  const url = match ? match[1] : null;
-
-  return { url, headers };
-}
-
-// ✅ تحديد الجودة من عنوان السيرفر
-function getQualityFromUrlOrTitle(text) {
-  const lower = text.toLowerCase();
-  if (lower.includes("fhd") || lower.includes("1080")) return "FHD";
-  if (lower.includes("hd") || lower.includes("720")) return "HD";
-  if (lower.includes("sd") || lower.includes("480")) return "SD";
-  return "SD";
+    async function extractMp4upload(embedUrl) {
+        try {
+            const html = await fetchv2(embedUrl);
+            const fileMatch = html.match(/player\.src\("([^"]+\.mp4)"\)/);
+            if (!fileMatch) return [];
+            return [{
+                title: '480p',
+                streamUrl: fileMatch[1],
+                headers: { Referer: embedUrl }
+            }];
+        } catch {
+            return [];
+        }
+    }
 }
 
 // ✅ حماية سورا
