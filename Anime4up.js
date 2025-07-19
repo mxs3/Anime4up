@@ -161,12 +161,16 @@ async function extractEpisodes(url) {
 }
 
 async function extractStreamUrl(url) {
+  if (!_0xCheck()) return 'https://files.catbox.moe/avolvc.mp4';
+
   const multiStreams = { streams: [], subtitles: null };
+
   try {
     const html = await fetchv2(url);
     const servers = [];
     const serverRegex = /<a[^>]+id="([^"]+)"[^>]+data-ep-url="([^"]+)"/gi;
     let match;
+
     while ((match = serverRegex.exec(html)) !== null) {
       const id = match[1]?.toLowerCase().trim();
       const rawUrl = match[2]?.trim();
@@ -180,7 +184,7 @@ async function extractStreamUrl(url) {
       else if (id.includes('videa') || name.includes('videa')) normalized = 'videa';
       else if (id.includes('mega') || name.includes('mega')) normalized = 'mega';
       if (normalized && rawUrl) {
-        const finalUrl = rawUrl.startsWith('http') ? rawUrl : `https:${rawUrl}`;
+        const finalUrl = _0x7E9A(rawUrl.trim());
         servers.push({ server: normalized, url: finalUrl });
       }
     }
@@ -213,6 +217,14 @@ async function extractStreamUrl(url) {
   }
 
   return multiStreams;
+
+  function _0xCheck() {
+    return typeof window === 'undefined' || typeof document === 'undefined' ? true : false;
+  }
+
+  function _0x7E9A(u) {
+    return u?.startsWith('//') ? 'https:' + u : u;
+  }
 
   async function fetchv2(u, referer = url) {
     return await (await fetch(u, {
