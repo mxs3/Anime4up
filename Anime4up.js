@@ -164,34 +164,41 @@ async function extractStreamUrl(url) {
     if (!_0xCheck()) return 'https://files.catbox.moe/avolvc.mp4';
 
     const multiStreams = { streams: [], subtitles: null };
+
     const html = await (await soraFetch(url)).text();
     const servers = [...html.matchAll(/<a[^>]+data-ep-url="([^"]+)"[^>]*>([^<]+)<\/a>/g)];
 
-    const priority = ['uqload', 'vidmoly', 'mp4upload'];
+    const priority = { uqload: 0, vidmoly: 1, mp4upload: 2 };
 
-    for (const server of priority) {
-        for (const [_, link, name] of servers) {
-            if (link.includes("mega") || !link.includes(server)) continue;
+    const sortedServers = servers
+        .filter(([_, link]) => !link.includes('mega'))
+        .map(([_, link, name]) => {
+            const type = link.includes('uqload') ? 'uqload'
+                      : link.includes('vidmoly') ? 'vidmoly'
+                      : link.includes('mp4upload') ? 'mp4upload'
+                      : null;
+            return type ? { link, name: name.trim(), type } : null;
+        })
+        .filter(Boolean)
+        .sort((a, b) => priority[a.type] - priority[b.type]);
 
-            let extractor;
-            if (link.includes("vidmoly")) extractor = extractVidmoly;
-            else if (link.includes("mp4upload")) extractor = extractMp4upload;
-            else if (link.includes("uqload")) extractor = extractUqload;
-            else continue;
+    for (const { link, name, type } of sortedServers) {
+        let extractor = type === 'vidmoly' ? extractVidmoly
+                      : type === 'mp4upload' ? extractMp4upload
+                      : extractUqload;
 
-            const list = await extractor(link);
-            if (!list?.length) continue;
+        const list = await extractor(link);
+        if (!list?.length) continue;
 
-            multiStreams.streams.push({
-                title: name.trim(),
-                qualities: list.map(s => ({
-                    title: s.quality,
-                    streamUrl: s.url,
-                    headers: s.headers,
-                    subtitles: null
-                }))
-            });
-        }
+        multiStreams.streams.push({
+            title: name,
+            qualities: list.map(s => ({
+                title: s.quality,
+                streamUrl: s.url,
+                headers: s.headers,
+                subtitles: null
+            }))
+        });
     }
 
     return JSON.stringify(multiStreams);
@@ -244,24 +251,6 @@ function _0x7E9A(_){
 
 // ============ Extractors ============
 
-async function extractUqload(url) {
-    const res = await soraFetch(url, {
-        headers: { Referer: url }
-    });
-    const html = await res.text();
-    const match = html.match(/"file"\s*:\s*"([^"]+)"/);
-    if (!match) return [];
-
-    return [{
-        url: match[1],
-        quality: '480p',
-        headers: {
-            Referer: url,
-            'User-Agent': 'Mozilla/5.0'
-        }
-    }];
-}
-
 async function extractVidmoly(url) {
     const res = await soraFetch(url, {
         headers: { Referer: url }
@@ -300,14 +289,21 @@ async function extractMp4upload(url) {
     }];
 }
 
-async function soraFetch(url, options = { headers: {}, method: 'GET', body: null }) {
-    try {
-        return await fetchv2(url, options.headers ?? {}, options.method ?? 'GET', options.body ?? null);
-    } catch(e) {
-        try {
-            return await fetch(url, options);
-        } catch(error) {
-            return null;
+async function extractUqload(url) {
+    const res = await soraFetch(url, {
+        headers: { Referer: url }
+    });
+    const html = await res.text();
+
+    const match = html.match(/"file"\s*:\s*"([^"]+)"/);
+    if (!match) return [];
+
+    return [{
+        url: match[1],
+        quality: '480p',
+        headers: {
+            Referer: url,
+            'User-Agent': 'Mozilla/5.0'
         }
-    }
+    }];
 }
