@@ -1,4 +1,3 @@
-// ✅ دالة فك ترميز الكيانات (HTML Entities) — نسخة واحدة فقط
 function decodeHTMLEntities(text) {
   const entities = {
     '&amp;': '&',
@@ -13,7 +12,6 @@ function decodeHTMLEntities(text) {
   return text.replace(/&[a-zA-Z0-9#]+;/g, match => entities[match] || match);
 }
 
-// ✅ دالة البحث
 async function searchResults(keyword) {
   try {
     const url = `https://4s.qerxam.shop/?search_param=animes&s=${encodeURIComponent(keyword)}`;
@@ -51,18 +49,14 @@ async function searchResults(keyword) {
   }
 }
 
-// ✅ دالة استخراج التفاصيل
 async function extractDetails(url) {
   try {
-    const response = await fetchv2(url); // No headers needed
+    const response = await fetchv2(url);
     const html = await response.text();
-
-    // Fallback values
     let description = "لا يوجد وصف متاح.";
     let airdate = "غير معروف";
     let aliases = "غير مصنف";
 
-    // ✅ الوصف
     const descMatch = html.match(/<p class="anime-story">([\s\S]*?)<\/p>/i);
     if (descMatch) {
       const rawDescription = descMatch[1].trim();
@@ -71,7 +65,6 @@ async function extractDetails(url) {
       }
     }
 
-    // ✅ التصنيفات
     const genresMatch = html.match(/<ul class="anime-genres">([\s\S]*?)<\/ul>/i);
     if (genresMatch) {
       const genreItems = [...genresMatch[1].matchAll(/<a[^>]*>([^<]+)<\/a>/g)];
@@ -81,7 +74,6 @@ async function extractDetails(url) {
       }
     }
 
-    // ✅ تاريخ العرض
     const airdateMatch = html.match(/<span>\s*بداية العرض:\s*<\/span>\s*(\d{4})/i);
     if (airdateMatch) {
       const extracted = airdateMatch[1].trim();
@@ -97,9 +89,7 @@ async function extractDetails(url) {
         airdate: `سنة العرض: ${airdate}`
       }
     ]);
-
-  } catch (error) {
-    console.error("extractDetails error:", error.message);
+  } catch {
     return JSON.stringify([
       {
         description: "تعذر تحميل الوصف.",
@@ -112,7 +102,6 @@ async function extractDetails(url) {
 
 async function extractEpisodes(url) {
   const results = [];
-
   try {
     const getPage = async (pageUrl) => {
       const res = await fetchv2(pageUrl, {
@@ -125,8 +114,6 @@ async function extractEpisodes(url) {
     };
 
     const firstHtml = await getPage(url);
-
-    // ✅ تحقق النوع (movie vs series)
     const typeMatch = firstHtml.match(/<div class="anime-info"><span>النوع:<\/span>\s*([^<]+)<\/div>/i);
     const type = typeMatch ? typeMatch[1].trim().toLowerCase() : "";
 
@@ -134,21 +121,17 @@ async function extractEpisodes(url) {
       return JSON.stringify([{ href: url, number: 1 }]);
     }
 
-    // ✅ استخراج روابط الصفحات كلها
     const paginationRegex = /<a[^>]+href="([^"]+\/page\/\d+\/?)"[^>]*class="page-numbers"/gi;
     const pagesSet = new Set();
-
     let match;
     while ((match = paginationRegex.exec(firstHtml)) !== null) {
       pagesSet.add(match[1]);
     }
 
     const pages = Array.from(pagesSet);
-    pages.push(url); // ضيف الصفحة الأولى
+    pages.push(url);
 
-    const htmlPages = await Promise.all(
-      pages.map(page => getPage(page))
-    );
+    const htmlPages = await Promise.all(pages.map(page => getPage(page)));
 
     for (const html of htmlPages) {
       const episodeRegex = /<div class="episodes-card-title">\s*<h3>\s*<a\s+href="([^"]+)">[^<]*الحلقة\s*(\d+)[^<]*<\/a>/gi;
@@ -156,7 +139,6 @@ async function extractEpisodes(url) {
       while ((epMatch = episodeRegex.exec(html)) !== null) {
         const episodeUrl = epMatch[1].trim();
         const episodeNumber = parseInt(epMatch[2].trim(), 10);
-
         if (!isNaN(episodeNumber)) {
           results.push({
             href: episodeUrl,
@@ -173,29 +155,23 @@ async function extractEpisodes(url) {
     }
 
     return JSON.stringify(results);
-
-  } catch (err) {
-    console.error("extractEpisodes error:", err);
+  } catch {
     return JSON.stringify([{ href: url, number: 1 }]);
   }
 }
 
 async function extractStreamUrl(url) {
   if (!_0xCheck()) return 'https://files.catbox.moe/avolvc.mp4';
-
   const multiStreams = { streams: [], subtitles: null };
-
   try {
     const html = await fetchv2(url);
     const servers = [];
     const serverRegex = /<a[^>]+id="([^"]+)"[^>]+data-ep-url="([^"]+)"/gi;
-
     let match;
     while ((match = serverRegex.exec(html)) !== null) {
       const id = match[1]?.toLowerCase().trim();
       const rawUrl = match[2]?.trim();
       const name = match[0]?.toLowerCase();
-
       let normalized = '';
       if (id.includes('vidmoly') || name.includes('vidmoly')) normalized = 'vidmoly';
       else if (id.includes('uqload') || name.includes('uqload')) normalized = 'uqload';
@@ -204,7 +180,6 @@ async function extractStreamUrl(url) {
       else if (id.includes('vk') || name.includes('vk')) normalized = 'vk';
       else if (id.includes('videa') || name.includes('videa')) normalized = 'videa';
       else if (id.includes('mega') || name.includes('mega')) normalized = 'mega';
-
       if (normalized && rawUrl) {
         const finalUrl = rawUrl.startsWith('http') ? rawUrl : `https:${rawUrl}`;
         servers.push({ server: normalized, url: finalUrl });
@@ -220,7 +195,6 @@ async function extractStreamUrl(url) {
       if (srv.server === 'vk') result = await extractVk(srv.url);
       if (srv.server === 'videa') result = await extractVidea(srv.url);
       if (srv.server === 'mega') result = await extractMega(srv.url);
-
       if (result.length) multiStreams.streams.push(...result);
     }
 
