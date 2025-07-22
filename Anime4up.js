@@ -169,6 +169,8 @@ async function extractStreamUrl(url) {
           title: `[Uqload] ${s.quality}`,
           streamUrl: s.url,
           headers: s.headers
+          type: 'video', // أو 'hls' لو هو HLS فعلاً
+          selectable: true
         });
       }
     }
@@ -180,6 +182,8 @@ async function extractStreamUrl(url) {
           title: `[Vidmoly] ${s.quality}`,
           streamUrl: s.url,
           headers: s.headers
+          type: 'video', // أو 'hls' لو هو HLS فعلاً
+          selectable: true
         });
       }
     }
@@ -191,6 +195,8 @@ async function extractStreamUrl(url) {
           title: `[Mp4upload] ${s.quality}`,
           streamUrl: s.url,
           headers: s.headers
+          type: 'video', // أو 'hls' لو هو HLS فعلاً
+          selectable: true
         });
       }
     }
