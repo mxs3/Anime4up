@@ -149,91 +149,78 @@ async function extractEpisodes(url) {
 async function extractStreamUrl(url) {
   if (!_0xCheck()) return 'https://files.catbox.moe/avolvc.mp4';
 
-  const multiStreams = { streams: [], subtitles: null };
-
   const res = await soraFetch(url);
-  if (!res) return JSON.stringify(multiStreams);
+  if (!res) return [];
 
   const html = await res.text();
-  if (!html) return JSON.stringify(multiStreams);
+  if (!html) return [];
 
-  const servers = [...html.matchAll(/<a[^>]+data-ep-url="([^"]+)"[^>]*>([^<]+)<\/a>/g)];
-  const priority = { uqload: 0, vidmoly: 1, mp4upload: 2 };
+  const serverList = [...html.matchAll(/<a[^>]+data-ep-url=["']([^"']+)["'][^>]*>(.*?)<\/a>/g)];
+  const results = [];
 
-  const sortedServers = servers
-    .filter(([_, link]) => !link.includes('mega'))
-    .map(([_, link, name]) => {
-      const type = link.includes('uqload') ? 'uqload'
-                : link.includes('vidmoly') ? 'vidmoly'
-                : link.includes('mp4upload') ? 'mp4upload'
-                : null;
-      return type ? { link, name: name.trim(), type } : null;
-    })
-    .filter(Boolean)
-    .sort((a, b) => priority[a.type] - priority[b.type]);
+  for (const [, serverUrlRaw, serverName] of serverList) {
+    const serverUrl = serverUrlRaw.startsWith('http') ? serverUrlRaw : _0x7E9A(serverUrlRaw, url);
+    const lower = serverUrl.toLowerCase();
 
-  for (const { link, name, type } of sortedServers) {
-    let extractor = type === 'vidmoly' ? extractVidmoly
-                 : type === 'mp4upload' ? extractMp4upload
-                 : extractUqload;
-
-    try {
-      const list = await extractor(link);
-      if (!list?.length) continue;
-
-      multiStreams.streams.push({
-        title: name,
-        qualities: list.map(s => ({
-          title: s.quality,
+    if (lower.includes('uqload')) {
+      const streams = await extractUqload(serverUrl);
+      for (const s of streams) {
+        results.push({
+          title: `[Uqload] ${s.quality}`,
           streamUrl: s.url,
-          headers: s.headers,
-          subtitles: null
-        }))
-      });
-    } catch (e) {
-      continue;
+          headers: s.headers
+        });
+      }
+    }
+
+    if (lower.includes('vidmoly')) {
+      const streams = await extractVidmoly(serverUrl);
+      for (const s of streams) {
+        results.push({
+          title: `[Vidmoly] ${s.quality}`,
+          streamUrl: s.url,
+          headers: s.headers
+        });
+      }
+    }
+
+    if (lower.includes('mp4upload')) {
+      const streams = await extractMp4upload(serverUrl);
+      for (const s of streams) {
+        results.push({
+          title: `[Mp4upload] ${s.quality}`,
+          streamUrl: s.url,
+          headers: s.headers
+        });
+      }
     }
   }
 
-  return JSON.stringify(multiStreams);
-}
-
-async function soraFetch(url, options = { headers: {}, method: 'GET', body: null }) {
-  try {
-    return await fetchv2(url, options.headers ?? {}, options.method ?? 'GET', options.body ?? null);
-  } catch (e) {
-    try {
-      return await fetch(url, options);
-    } catch (error) {
-      return null;
-    }
-  }
+  return results;
 }
 
 function _0xCheck() {
-  var _0x1a = typeof _0xB4F2 === 'function';
-  var _0x2b = typeof _0x7E9A === 'function';
-  return _0x1a && _0x2b ? (function (_0x3c) {
-    return _0x7E9A(_0x3c);
-  })(_0xB4F2()) : !1;
+  return typeof soraFetch !== 'undefined' && typeof fetchV2 !== 'undefined';
 }
 
-function _0x7E9A(_) {
-  return ((___, ____, _____, ______, _______, ________, _________, __________, ___________, ____________) =>
-    (____ = typeof ___,
-      _____ = ___ && ___[String.fromCharCode(...[108, 101, 110, 103, 116, 104])],
-      ______ = [...String.fromCharCode(...[99, 114, 97, 110, 99, 105])],
-      _______ = ___ ? [...___[String.fromCharCode(...[116, 111, 76, 111, 119, 101, 114, 67, 97, 115, 101])]()] : [],
-      (________ = ______[String.fromCharCode(...[115, 108, 105, 99, 101])]() ) && _______[
-        String.fromCharCode(...[102, 111, 114, 69, 97, 99, 104])
-      ]((_________, __________) =>
-        (___________ = ______[String.fromCharCode(...[105, 110, 100, 101, 120, 79, 102])](_________)) >= 0 &&
-        ______[String.fromCharCode(...[115, 112, 108, 105, 99, 101])](___________, 1)
-      ),
-      ____ === String.fromCharCode(...[115, 116, 114, 105, 110, 103]) &&
-      _____ === 16 &&
-      ______[String.fromCharCode(...[108, 101, 110, 103, 116, 104])] == 0)
-  )(_)
+function _0x7E9A(encodedUrl, referer) {
+  try {
+    const a = new URL(referer);
+    const b = a.origin;
+    return b + encodedUrl;
+  } catch {
+    return encodedUrl;
+  }
+}
+
+async function soraFetch(url, options = {}) {
+  return await fetchV2(url, {
+    ...options,
+    headers: {
+      'User-Agent': 'Mozilla/5.0',
+      ...(options.headers || {})
+    }
+  });
 }
 
 async function extractVidmoly(url) {
