@@ -11,15 +11,16 @@ async function searchResults(keyword) {
 
     const results = [];
     const blocks = html.split('anime-card-container');
+
     for (const block of blocks) {
-      const hrefMatch = block.match(/<a href="([^"]+\/anime\/[^"]+)"/);
+      const hrefMatch = block.match(/<a[^>]+class="overlay"[^>]+href="([^"]+)"/);
       const imgMatch = block.match(/<img[^>]+src="([^"]+)"[^>]*>/);
-      const titleMatch = block.match(/alt="([^"]+)"/);
+      const titleMatch = block.match(/<div class="anime-card-title"[^>]*>[\s\S]*?<h3>[\s\S]*?<a[^>]*>([^<]+)<\/a>/);
 
       if (hrefMatch && imgMatch && titleMatch) {
         results.push({
-          title: decodeHTMLEntities(titleMatch[1]),
-          href: hrefMatch[1],
+          title: decodeHTMLEntities(titleMatch[1].trim()),
+          href: hrefMatch[1].startsWith('http') ? hrefMatch[1] : 'https://witanime.world' + hrefMatch[1],
           image: imgMatch[1]
         });
       }
@@ -31,7 +32,7 @@ async function searchResults(keyword) {
 
     return JSON.stringify(results);
   } catch (err) {
-    return JSON.stringify([{ title: 'خطأ في البحث', href: '', image: '', error: err.message }]);
+    return JSON.stringify([{ title: 'حدث خطأ أثناء البحث', href: '', image: '', error: err.message }]);
   }
 }
 
