@@ -1,38 +1,26 @@
-async function searchResults(keyword) {
-  try {
-    const url = `https://witanime.world/?s=${encodeURIComponent(keyword)}`;
-    const res = await fetchv2(url, {
-      headers: {
-        'User-Agent': 'Mozilla/5.0',
-        'Referer': 'https://witanime.world/'
-      }
-    });
-    const html = await res.text();
+async function searchResults(query) {
+  const url = `https://witanime.world/?search_param=animes&s=${encodeURIComponent(query)}`;
+  const res = await fetchv2(url);
+  const html = await res.text();
+  const results = [];
+  const regex = /<div class="anime-card-container">([\s\S]*?)<\/div>\s*<\/div>/g;
 
-    const results = [];
-    const blocks = html.split('anime-card-container');
-    for (const block of blocks) {
-      const hrefMatch = block.match(/<a href="([^"]+\/anime\/[^"]+)"/);
-      const imgMatch = block.match(/<img[^>]+src="([^"]+)"/);
-      const titleMatch = block.match(/anime-card-title[^>]*>\s*<h3>\s*<a[^>]*>([^<]+)<\/a>/);
+  for (const match of html.matchAll(regex)) {
+    const block = match[1];
+    const linkMatch = block.match(/<a\s+href="([^"]+)"[^>]*>/);
+    const imgMatch = block.match(/<img[^>]+src="([^"]+)"[^>]*>/);
+    const titleMatch = block.match(/<h3[^>]*>\s*<a[^>]*>([^<]+)<\/a>/);
 
-      if (hrefMatch && imgMatch && titleMatch) {
-        results.push({
-          title: decodeHTMLEntities(titleMatch[1]),
-          href: hrefMatch[1],
-          image: imgMatch[1]
-        });
-      }
+    if (linkMatch && titleMatch) {
+      results.push({
+        title: decodeHTMLEntities(titleMatch[1].trim()),
+        url: linkMatch[1],
+        image: imgMatch ? imgMatch[1] : null
+      });
     }
-
-    if (results.length === 0) {
-      return JSON.stringify([{ title: 'No results found', href: '', image: '' }]);
-    }
-
-    return JSON.stringify(results);
-  } catch (err) {
-    return JSON.stringify([{ title: 'Error', href: '', image: '', error: err.message }]);
   }
+
+  return JSON.stringify(results);
 }
 
 async function extractDetails(url) {
