@@ -237,15 +237,13 @@ function _0x7E9A(_) {
 }
 
 async function extractVidmoly(url) {
-  const res = await soraFetch(url, {
-    headers: { Referer: url }
-  });
+  const res = await soraFetch(url, { headers: { Referer: url } });
   if (!res) return [];
 
   const html = await res.text();
   if (!html) return [];
 
-  const matches = [...html.matchAll(/file:\s*['"]([^'"]+)['"].*?label:\s*['"]([^'"]+)['"]/g)];
+  const matches = [...html.matchAll(/file:\s*['"]([^'"]+\.mp4[^'"]*)['"].*?label:\s*['"]([^'"]+)['"]/g)];
   if (!matches.length) return [];
 
   return matches.map(m => ({
@@ -259,15 +257,13 @@ async function extractVidmoly(url) {
 }
 
 async function extractMp4upload(url) {
-  const res = await soraFetch(url, {
-    headers: { Referer: url }
-  });
+  const res = await soraFetch(url, { headers: { Referer: url } });
   if (!res) return [];
 
   const html = await res.text();
   if (!html) return [];
 
-  const match = html.match(/player\.src\(\{\s*type:\s*['"]video\/mp4['"],\s*src:\s*['"]([^'"]+)['"]\s*\}\)/);
+  const match = html.match(/player\.src\(\{\s*type:\s*['"]video\/mp4['"],\s*src:\s*['"]([^'"]+\.mp4[^'"]*)['"]/);
   if (!match) return [];
 
   return [{
@@ -281,15 +277,13 @@ async function extractMp4upload(url) {
 }
 
 async function extractUqload(url) {
-  const res = await soraFetch(url, {
-    headers: { Referer: url }
-  });
+  const res = await soraFetch(url, { headers: { Referer: url } });
   if (!res) return [];
 
   const html = await res.text();
   if (!html) return [];
 
-  const match = html.match(/"file"\s*:\s*"([^"]+)"/);
+  const match = html.match(/"file"\s*:\s*"([^"]+\.mp4[^"]*)"/);
   if (!match) return [];
 
   return [{
