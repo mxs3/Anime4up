@@ -1,10 +1,10 @@
 async function searchResults(keyword) {
   try {
-    const url = `https://4s.qerxam.shop/?search_param=animes&s=${encodeURIComponent(keyword)}`;
+    const url = `https://witanime.world/?s=${encodeURIComponent(keyword)}`;
     const res = await fetchv2(url, {
       headers: {
         'User-Agent': 'Mozilla/5.0',
-        'Referer': 'https://4s.qerxam.shop/'
+        'Referer': 'https://witanime.world/'
       }
     });
     const html = await res.text();
@@ -13,7 +13,7 @@ async function searchResults(keyword) {
     const blocks = html.split('anime-card-container');
     for (const block of blocks) {
       const hrefMatch = block.match(/<a href="([^"]+\/anime\/[^"]+)"/);
-      const imgMatch = block.match(/<img[^>]+src="([^"]+)"[^>]*>/);
+      const imgMatch = block.match(/<img[^>]+src="([^"]+)"/);
       const titleMatch = block.match(/anime-card-title[^>]*>\s*<h3>\s*<a[^>]*>([^<]+)<\/a>/);
 
       if (hrefMatch && imgMatch && titleMatch) {
