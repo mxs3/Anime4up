@@ -149,110 +149,157 @@ async function extractEpisodes(url) {
 async function extractStreamUrl(url) {
   if (!_0xCheck()) return 'https://files.catbox.moe/avolvc.mp4';
 
-  const html = await soraFetch(url).then(res => res.text());
-  const matches = [...html.matchAll(/data-ep-url="([^"]+).+?>([^<]+)/g)];
+  const multiStreams = { streams: [], subtitles: null };
 
-  const servers = matches.map(m => {
-    let link = m[1].startsWith('//') ? 'https:' + m[1] : m[1];
-    let name = m[2].trim();
-    let type = link.includes('uqload') ? 'uqload' :
-               link.includes('vidmoly') ? 'vidmoly' :
-               link.includes('mp4upload') ? 'mp4upload' : null;
-    return type ? { link, name, type } : null;
-  }).filter(Boolean);
+  const res = await soraFetch(url);
+  if (!res) return JSON.stringify(multiStreams);
 
+  const html = await res.text();
+  if (!html) return JSON.stringify(multiStreams);
+
+  const servers = [...html.matchAll(/<a[^>]+data-ep-url="([^"]+)"[^>]*>([^<]+)<\/a>/g)];
   const priority = { uqload: 0, vidmoly: 1, mp4upload: 2 };
-  const sorted = servers.sort((a, b) => priority[a.type] - priority[b.type]);
 
-  const results = [];
+  const sortedServers = servers
+    .filter(([_, link]) => !link.includes('mega'))
+    .map(([_, link, name]) => {
+      const type = link.includes('uqload') ? 'uqload'
+                : link.includes('vidmoly') ? 'vidmoly'
+                : link.includes('mp4upload') ? 'mp4upload'
+                : null;
+      return type ? { link, name: name.trim(), type } : null;
+    })
+    .filter(Boolean)
+    .sort((a, b) => priority[a.type] - priority[b.type]);
 
-  for (const { link, name, type } of sorted) {
-    let streams = [];
+  for (const { link, name, type } of sortedServers) {
+    let extractor = type === 'vidmoly' ? extractVidmoly
+                 : type === 'mp4upload' ? extractMp4upload
+                 : extractUqload;
 
-    if (type === 'uqload') {
-      streams = await extractUqload(link);
-    } else if (type === 'vidmoly') {
-      streams = await extractVidmoly(link);
-    } else if (type === 'mp4upload') {
-      streams = await extractMp4upload(link);
+    try {
+      const list = await extractor(link);
+      if (!list?.length) continue;
+
+      multiStreams.streams.push({
+        title: name,
+        qualities: list.map(s => ({
+          title: s.quality,
+          streamUrl: s.url,
+          headers: s.headers,
+          subtitles: null
+        }))
+      });
+    } catch (e) {
+      continue;
     }
+  }
 
-    for (const s of streams) {
-      results.push({ ...s, title: `${name} - ${s.title}` });
+  return JSON.stringify(multiStreams);
+}
+
+async function soraFetch(url, options = { headers: {}, method: 'GET', body: null }) {
+  try {
+    return await fetchv2(url, options.headers ?? {}, options.method ?? 'GET', options.body ?? null);
+  } catch (e) {
+    try {
+      return await fetch(url, options);
+    } catch (error) {
+      return null;
     }
   }
-
-  return results;
-}
-
-async function extractUqload(url) {
-  if (!url.includes('/embed-')) {
-    const id = url.split('/').pop().replace('.html', '');
-    url = `https://uqload.io/embed-${id}.html`;
-  }
-  const html = await soraFetch(url, { headers: { Referer: url } }).then(res => res.text());
-  const match = html.match(/sources:\s*\[\{file:"([^"]+)/);
-  if (!match) return [];
-  return [{ title: 'SD', streamUrl: match[1], headers: { Referer: url } }];
-}
-
-async function extractVidmoly(url) {
-  if (!url.includes('/embed-')) {
-    const id = url.split('/').pop().replace('.html', '');
-    url = `https://vidmoly.to/embed-${id}.html`;
-  }
-  const html = await soraFetch(url, { headers: { Referer: url } }).then(res => res.text());
-  const matches = [...html.matchAll(/file:\s*['"]([^'"]+\.mp4[^'"]*)['"]\s*,\s*label:\s*['"]([^'"]+)/g)];
-  return matches.map(m => ({ title: m[2], streamUrl: m[1], headers: { Referer: url } }));
-}
-
-async function extractMp4upload(url) {
-  if (!url.includes('/embed-')) {
-    const id = url.split('/').pop().replace('.html', '');
-    url = `https://www.mp4upload.com/embed-${id}.html`;
-  }
-  const html = await soraFetch(url, { headers: { Referer: url } }).then(res => res.text());
-  const unpacked = extractScript(html);
-  const match = unpacked.match(/player\.src\("([^"]+)/);
-  if (!match) return [];
-  return [{ title: 'SD', streamUrl: match[1], headers: { Referer: url } }];
-}
-
-function soraFetch(url, opt = {}) {
-  return fetch(url, {
-    ...opt,
-    headers: {
-      'User-Agent': _0x7E9A(),
-      ...(opt.headers || {})
-    }
-  });
 }
 
 function _0xCheck() {
-  return typeof _0x7E9A === 'function';
+  var _0x1a = typeof _0xB4F2 === 'function';
+  var _0x2b = typeof _0x7E9A === 'function';
+  return _0x1a && _0x2b ? (function (_0x3c) {
+    return _0x7E9A(_0x3c);
+  })(_0xB4F2()) : !1;
 }
 
-function _0x7E9A() {
-  return "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 " +
-         "(KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36";
+function _0x7E9A(_) {
+  return ((___, ____, _____, ______, _______, ________, _________, __________, ___________, ____________) =>
+    (____ = typeof ___,
+      _____ = ___ && ___[String.fromCharCode(...[108, 101, 110, 103, 116, 104])],
+      ______ = [...String.fromCharCode(...[99, 114, 97, 110, 99, 105])],
+      _______ = ___ ? [...___[String.fromCharCode(...[116, 111, 76, 111, 119, 101, 114, 67, 97, 115, 101])]()] : [],
+      (________ = ______[String.fromCharCode(...[115, 108, 105, 99, 101])]() ) && _______[
+        String.fromCharCode(...[102, 111, 114, 69, 97, 99, 104])
+      ]((_________, __________) =>
+        (___________ = ______[String.fromCharCode(...[105, 110, 100, 101, 120, 79, 102])](_________)) >= 0 &&
+        ______[String.fromCharCode(...[115, 112, 108, 105, 99, 101])](___________, 1)
+      ),
+      ____ === String.fromCharCode(...[115, 116, 114, 105, 110, 103]) &&
+      _____ === 16 &&
+      ______[String.fromCharCode(...[108, 101, 110, 103, 116, 104])] == 0)
+  )(_)
 }
 
-function extractScript(html) {
-  const scripts = [...html.matchAll(/<script[^>]*>([\s\S]*?)<\/script>/g)];
-  for (const [, script] of scripts) {
-    if (/eval\(function\(p,a,c,k,e/.test(script)) {
-      return unpack(script);
+async function extractVidmoly(url) {
+  const res = await soraFetch(url, {
+    headers: { Referer: url }
+  });
+  if (!res) return [];
+
+  const html = await res.text();
+  if (!html) return [];
+
+  const matches = [...html.matchAll(/file:\s*['"]([^'"]+)['"].*?label:\s*['"]([^'"]+)['"]/g)];
+  if (!matches.length) return [];
+
+  return matches.map(m => ({
+    url: m[1],
+    quality: m[2],
+    headers: {
+      Referer: url,
+      'User-Agent': 'Mozilla/5.0'
     }
-  }
-  return '';
+  }));
 }
 
-function unpack(s) {
-  try {
-    return new Function('return ' + s.match(/eval\(function\(p,a,c,k,e,d\).*?}\('(.*?)'\)/s)?.[0])();
-  } catch {
-    return '';
-  }
+async function extractMp4upload(url) {
+  const res = await soraFetch(url, {
+    headers: { Referer: url }
+  });
+  if (!res) return [];
+
+  const html = await res.text();
+  if (!html) return [];
+
+  const match = html.match(/player\.src\(\{\s*type:\s*['"]video\/mp4['"],\s*src:\s*['"]([^'"]+)['"]\s*\}\)/);
+  if (!match) return [];
+
+  return [{
+    url: match[1],
+    quality: '480p',
+    headers: {
+      Referer: url,
+      'User-Agent': 'Mozilla/5.0'
+    }
+  }];
+}
+
+async function extractUqload(url) {
+  const res = await soraFetch(url, {
+    headers: { Referer: url }
+  });
+  if (!res) return [];
+
+  const html = await res.text();
+  if (!html) return [];
+
+  const match = html.match(/"file"\s*:\s*"([^"]+)"/);
+  if (!match) return [];
+
+  return [{
+    url: match[1],
+    quality: '480p',
+    headers: {
+      Referer: url,
+      'User-Agent': 'Mozilla/5.0'
+    }
+  }];
 }
 
 function decodeHTMLEntities(text) {
