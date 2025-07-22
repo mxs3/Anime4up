@@ -235,14 +235,16 @@ async function extractVidmoly(url) {
   const matches = [...html.matchAll(/file:\s*['"]([^'"]+)['"].*?label:\s*['"]([^'"]+)['"]/g)];
   if (!matches.length) return [];
 
-  return matches.map(m => ({
-    url: m[1],
-    quality: m[2],
-    headers: {
-      Referer: url,
-      'User-Agent': 'Mozilla/5.0'
-    }
-  }));
+  return matches
+    .filter(m => m[1].endsWith('.mp4') || m[1].endsWith('.m3u8'))
+    .map(m => ({
+      url: m[1],
+      quality: m[2],
+      headers: {
+        Referer: url,
+        'User-Agent': 'Mozilla/5.0'
+      }
+    }));
 }
 
 async function extractMp4upload(url) {
@@ -254,8 +256,11 @@ async function extractMp4upload(url) {
   const html = await res.text();
   if (!html) return [];
 
-  const match = html.match(/player\.src\(\{\s*type:\s*['"]video\/mp4['"],\s*src:\s*['"]([^'"]+)['"]\s*\}\)/);
+  const match = html.match(/player\.src\(\{\s*type:\s*['"]video\/mp4['"],\s*src:\s*['"]([^'"]+)['"]\s*\}\)/)
+    || html.match(/"file"\s*:\s*"([^"]+)"/);
   if (!match) return [];
+
+  if (!match[1].endsWith('.mp4') && !match[1].endsWith('.m3u8')) return [];
 
   return [{
     url: match[1],
@@ -278,6 +283,8 @@ async function extractUqload(url) {
 
   const match = html.match(/"file"\s*:\s*"([^"]+)"/);
   if (!match) return [];
+
+  if (!match[1].endsWith('.mp4') && !match[1].endsWith('.m3u8')) return [];
 
   return [{
     url: match[1],
