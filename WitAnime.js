@@ -60,7 +60,7 @@ async function extractDetails(url) {
       }
     }
 
-    const airdateMatch = html.match(/<span>\s*بداية العرض:\s*<\/span>\s*(\d{4})/i);
+    const airdateMatch = html.match(/<div class="anime-info">[\s\S]*?<span>\s*بداية العرض:\s*<\/span>\s*([^<\n]+)/i);
     if (airdateMatch) {
       const extracted = airdateMatch[1].trim();
       if (/^\d{4}$/.test(extracted)) {
