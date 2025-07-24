@@ -12,7 +12,7 @@
   "quality": "Auto",
   "baseUrl": "https://witanime.world/",
   "searchBaseUrl": "https://witanime.world/?s=%s",
-  "scriptUrl": "https://raw.githubusercontent.com/mxs3/Anime4up/main/Anime4up.js",
+  "scriptUrl": "https://raw.githubusercontent.com/mxs3/WitAnime/refs/heads/main/WitAnime.js",
   "type": "anime",
   "asyncJS": true,
   "streamAsyncJS": true
