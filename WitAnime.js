@@ -10,9 +10,10 @@ async function searchResults(keyword) {
     const html = await res.text();
 
     const results = [];
-    const blocks = html.split('anime-card-container');
+    const blocks = [...html.matchAll(/<div class="anime-card-container">([\s\S]*?)<\/div>\s*<\/div>/g)];
 
-    for (const block of blocks) {
+    for (const blockMatch of blocks) {
+      const block = blockMatch[0];
       const hrefMatch = block.match(/<a[^>]+class="overlay"[^>]+href="([^"]+)"/);
       const imgMatch = block.match(/<img[^>]+src="([^"]+)"[^>]*>/);
       const titleMatch = block.match(/<div class="anime-card-title"[^>]*>[\s\S]*?<h3>[\s\S]*?<a[^>]*>([^<]+)<\/a>/);
