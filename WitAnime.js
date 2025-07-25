@@ -130,13 +130,11 @@ async function extractEpisodes(url) {
 }
 
 async function extractStreamUrl(url) {
-  if (!_0xCheck()) {
-    console.log('❌ _0xCheck فشل');
-    return 'https://files.catbox.moe/avolvc.mp4';
-  }
+  if (!_0xCheck()) return 'https://files.catbox.moe/avolvc.mp4';
 
   const multiStreams = { streams: [], subtitles: null };
-  console.log('🚀 بدأنا استخراج السيرفرات من:', url);
+
+  console.log('[extractStreamUrl] Fetching episode page:', url);
 
   const res = await soraFetch(url, {
     headers: {
@@ -145,43 +143,49 @@ async function extractStreamUrl(url) {
   });
 
   const html = await res.text();
-  console.log('📄 تم جلب صفحة السيرفرات بنجاح');
-
   const serverList = [...html.matchAll(/<a[^>]+class="server-link"[^>]+>([\s\S]*?)<\/a>/g)];
-  console.log(`🔍 تم العثور على ${serverList.length} سيرفر(ات)`);
+
+  console.log('[extractStreamUrl] Found server links:', serverList.length);
 
   for (const server of serverList) {
     const serverName = server[1]?.match(/<span[^>]*class="ser"[^>]*>([^<]+)<\/span>/)?.[1]?.trim()?.toLowerCase();
-    const link = server[0]?.match(/openServer\(['"]([^'"]+)['"]\)/)?.[1];
-    console.log('➡️ السيرفر:', serverName, '| Link:', link);
-
-    if (!serverName || !link) {
-      console.log('⚠️ السيرفر غير صالح أو الرابط مفقود، سيتم تخطيه');
+    const encodedLink = server[0]?.match(/openServer\(['"]([^'"]+)['"]\)/)?.[1];
+    
+    console.log('[extractStreamUrl] Server found:', serverName);
+    if (!serverName || !encodedLink) {
+      console.log('[extractStreamUrl] Skipping invalid server entry.');
       continue;
     }
 
-    const decodedLink = atob(link);
-    console.log(`🔓 الرابط المفكوك (${serverName}):`, decodedLink);
+    let decodedLink = '';
+    try {
+      decodedLink = atob(encodedLink);
+    } catch (e) {
+      console.log('[extractStreamUrl] Failed to decode base64:', encodedLink);
+      continue;
+    }
+
+    console.log(`[extractStreamUrl] Decoded link for ${serverName}:`, decodedLink);
 
     if (serverName.includes('dailymotion')) {
+      console.log('[extractStreamUrl] Extracting Dailymotion streams...');
       const streams = await extractDailymotionStreams(decodedLink);
-      if (!streams.length) {
-        console.log('❌ فشل استخراج روابط من Dailymotion');
-      } else {
-        console.log(`✅ تم استخراج ${streams.length} جودة من Dailymotion`);
-        multiStreams.streams.push(...streams.map(s => ({
+      console.log('[extractStreamUrl] Dailymotion streams extracted:', streams.length);
+
+      for (const s of streams) {
+        multiStreams.streams.push({
           title: `Dailymotion - ${s.quality}`,
           streamUrl: s.url,
           headers: { Referer: decodedLink }
-        })));
+        });
       }
     }
 
-    // ممكن تضيف سيرفرات تانية هنا بنفس الطريقة مع لوج مناسب
+    // تقدر تضيف باقي السيرفرات هنا مع نفس نوع اللوجات
   }
 
   if (!multiStreams.streams.length) {
-    console.log('🚨 لم يتم العثور على أي روابط، سيتم استخدام رابط Fallback');
+    console.log('[extractStreamUrl] No streams found, using fallback.');
     multiStreams.streams.push({
       title: 'Fallback',
       streamUrl: 'https://files.catbox.moe/avolvc.mp4',
@@ -189,21 +193,23 @@ async function extractStreamUrl(url) {
     });
   }
 
-  console.log('🎉 الانتهاء من الاستخراج، عدد الروابط:', multiStreams.streams.length);
   return multiStreams;
 }
 
 async function extractDailymotionStreams(url) {
   try {
-    console.log('🌐 محاولة استخراج Dailymotion من:', url);
-
+    console.log('[extractDailymotionStreams] Getting ID from URL:', url);
     const videoId = url.match(/dailymotion\.com\/embed\/video\/([a-zA-Z0-9]+)/)?.[1];
+
     if (!videoId) {
-      console.log('❌ لم يتم العثور على videoId في Dailymotion');
+      console.log('[extractDailymotionStreams] No video ID found.');
       return [];
     }
 
-    const res = await soraFetch(`https://www.dailymotion.com/player/metadata/video/${videoId}`, {
+    const apiUrl = `https://www.dailymotion.com/player/metadata/video/${videoId}`;
+    console.log('[extractDailymotionStreams] Fetching metadata from:', apiUrl);
+
+    const res = await soraFetch(apiUrl, {
       headers: {
         'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)',
         Referer: url
@@ -228,15 +234,15 @@ async function extractDailymotionStreams(url) {
       }
     }
 
+    console.log('[extractDailymotionStreams] Extracted stream qualities:', streams.map(s => s.quality));
     return streams;
   } catch (e) {
-    console.log('❌ حدث خطأ أثناء استخراج داتا Dailymotion:', e);
+    console.log('[extractDailymotionStreams] Error while extracting:', e.message);
     return [];
   }
 }
 
 function _0xCheck() {
-  // check logic
   return true;
 }
 
