@@ -94,49 +94,52 @@ async function extractEpisodes(url) {
   const results = [];
 
   try {
-    const response = await fetchv2(url, {
+    const res = await fetchv2(url, {
       headers: {
         "User-Agent": "Mozilla/5.0",
         "Referer": url
       }
     });
 
-    const html = await response.text();
+    const html = await res.text();
 
-    // ✅ استخراج نوع العمل
-    const typeMatch = html.match(/<div class="anime-info"><span>النوع:<\/span>\s*<a[^>]*>([^<]+)<\/a>/i);
-    const type = typeMatch ? typeMatch[1].trim().toLowerCase() : "";
+    // ✅ استخراج anime_id من الصفحة
+    const idMatch = html.match(/anime_id\s*=\s*"(\d+)"/);
+    const animeId = idMatch ? idMatch[1] : null;
 
-    // ✅ لو فيلم: حلقة واحدة فقط
-    if (type.includes("movie") || type.includes("فيلم")) {
+    if (!animeId) {
       return JSON.stringify([{ href: url, number: 1 }]);
     }
 
-    // ✅ استخراج الحلقات من HTML
-    const episodeRegex = /<a\s+href="([^"]+)"[^>]*>\s*<div[^>]*>\s*<span[^>]*>الحلقة\s*(\d+)<\/span>/gi;
+    // ✅ طلب الحلقات من API
+    const apiRes = await fetchv2("https://witanime.world/wp-admin/admin-ajax.php", {
+      method: "POST",
+      headers: {
+        "User-Agent": "Mozilla/5.0",
+        "Content-Type": "application/x-www-form-urlencoded",
+        "Referer": url
+      },
+      body: `action=anime_select_episode&anime_id=${animeId}`
+    });
 
+    const apiHtml = await apiRes.text();
+
+    // ✅ استخراج روابط الحلقات
+    const episodeRegex = /<a\s+href="([^"]+)"[^>]*>\s*الحلقة\s*(\d+)/gi;
     let match;
-    while ((match = episodeRegex.exec(html)) !== null) {
+    while ((match = episodeRegex.exec(apiHtml)) !== null) {
       const episodeUrl = match[1].trim();
       const episodeNumber = parseInt(match[2].trim(), 10);
-
       if (!isNaN(episodeNumber)) {
-        results.push({
-          href: episodeUrl,
-          number: episodeNumber
-        });
+        results.push({ href: episodeUrl, number: episodeNumber });
       }
     }
 
-    // ✅ ترتيب تصاعدي
     results.sort((a, b) => a.number - b.number);
 
-    // ✅ fallback لو مش فيلم بس مفيش حلقات
-    if (results.length === 0) {
-      return JSON.stringify([{ href: url, number: 1 }]);
-    }
-
-    return JSON.stringify(results);
+    return results.length > 0
+      ? JSON.stringify(results)
+      : JSON.stringify([{ href: url, number: 1 }]);
 
   } catch (err) {
     console.error("extractEpisodes error:", err);
