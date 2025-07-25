@@ -95,33 +95,47 @@ async function extractEpisodes(url) {
   const html = typeof res === 'string' ? res : await res.text();
 
   const episodes = [];
-  const containerMatch = html.match(/<div\s+class="row display-flex"\s+id="DivEpisodesList">([\s\S]*?)<\/div>/);
 
-  if (!containerMatch) {
-    console.warn("❌ لم يتم العثور على قائمة الحلقات في الصفحة.");
-    return [];
-  }
-
-  const containerContent = containerMatch[1];
-  const linkRegex = /<a[^>]+href="([^"]+)"[^>]*>[^<]*الحلقة\s*(\d+)[^<]*<\/a>/gi;
-
-  let match;
-  while ((match = linkRegex.exec(containerContent)) !== null) {
-    const href = match[1].trim();
-    const number = parseInt(match[2]);
-
-    if (!isNaN(number)) {
-      episodes.push({
-        title: `الحلقة ${number}`,
-        url: href
-      });
+  // 1. محاولة التقاط الحلقات من onclick="openEpisode('BASE64')"
+  const onclickMatches = [...html.matchAll(/<a[^>]+onclick="openEpisode\('([^']+)'\)"[^>]*>(.*?)<\/a>/gi)];
+  for (const match of onclickMatches) {
+    const encoded = match[1];
+    const title = match[2].replace(/<[^>]+>/g, '').trim();
+    const decodedUrl = atob(encoded);
+    if (decodedUrl.includes('http')) {
+      episodes.push({ title, url: decodedUrl });
     }
   }
 
-  // ترتيب الحلقات تصاعدي
-  episodes.sort((a, b) => a.title.localeCompare(b.title, 'ar', { numeric: true }));
+  // 2. محاولة التقاط الحلقات من روابط مباشرة مثل <a href="...">الحلقة 1</a>
+  const directMatches = [...html.matchAll(/<a[^>]+href="([^"]+)"[^>]*>(?:[^<]*?)?الحلقة[\s:]*([\d٠-٩]+)[^<]*<\/a>/gi)];
+  for (const match of directMatches) {
+    const href = match[1].trim();
+    const numRaw = match[2].trim();
+    const number = parseInt(numRaw.replace(/[٠-٩]/g, d => '٠١٢٣٤٥٦٧٨٩'.indexOf(d)));
 
-  return episodes;
+    if (!isNaN(number)) {
+      episodes.push({ title: `الحلقة ${number}`, url: href });
+    }
+  }
+
+  // 3. حذف التكرارات
+  const seen = new Set();
+  const uniqueEpisodes = episodes.filter(ep => {
+    const key = ep.url;
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
+
+  // 4. ترتيب الحلقات تصاعدي
+  uniqueEpisodes.sort((a, b) => {
+    const aNum = parseInt(a.title.match(/\d+/)?.[0] ?? 0);
+    const bNum = parseInt(b.title.match(/\d+/)?.[0] ?? 0);
+    return aNum - bNum;
+  });
+
+  return uniqueEpisodes;
 }
 
 function decodeHTMLEntities(text) {
