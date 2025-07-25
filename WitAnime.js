@@ -91,56 +91,51 @@ async function extractDetails(url) {
 }
 
 async function extractEpisodes(url) {
-  const results = [];
-  try {
-    const res = await fetchv2(url, {
-      headers: {
-        "User-Agent": "Mozilla/5.0",
-        "Referer": url
-      }
-    });
-    const html = typeof res === "string" ? res : await res.text();
+    const soraFetch = async (url, options = {}) => {
+        return await (await fetch(url, {
+            ...options,
+            headers: {
+                'User-Agent': 'Sora/Stream',
+                'X-Requested-With': 'XMLHttpRequest',
+                ...options.headers,
+            }
+        })).text();
+    };
 
-    // 1) نشوف لو الصفحة فيها قائمة episodes داخل div row
-    const rowMatch = html.match(/<div[^>]+id=["']DivEpisodesList["'][\s\S]*?<\/div>/i);
-    const block = rowMatch ? rowMatch[0] : html;
+    const getPostId = html => {
+        const match = html.match(/"post_id":(\d+)/);
+        return match ? match[1] : null;
+    };
 
-    // 2) نبحث على openEpisode encoded
-    const regex1 = /openEpisode\(\s*'([^']+)'\s*\).*?>\s*الحلقة\s*(\d+)/gi;
-    let m;
-    while ((m = regex1.exec(block)) !== null) {
-      try {
-        const decoded = atob(m[1]);
-        const num = parseInt(m[2], 10);
-        if (!isNaN(num)) {
-          results.push({ number: num, href: decoded });
+    const decodeBase64 = str => {
+        try {
+            return atob(str);
+        } catch {
+            return null;
         }
-      } catch(e){}
-    }
+    };
 
-    // 3) fallback: روابط <a href="...">الحلقة N</a>
-    if (results.length === 0) {
-      const regex2 = /<a[^>]+href=["']([^"']+)["'][^>]*>\s*الحلقة\s*(\d+)\s*<\/a>/gi;
-      while ((m = regex2.exec(html)) !== null) {
-        const num = parseInt(m[2], 10);
-        if (!isNaN(num)) {
-          results.push({ number: num, href: m[1].trim() });
-        }
-      }
-    }
+    const html = await soraFetch(url);
+    const postId = getPostId(html);
+    if (!postId) return [];
 
-    // 4) نسوي ترتيب تصاعدي حسب الرقم
-    results.sort((a,b)=>a.number-b.number);
+    const ajaxUrl = `https://witanime.world/wp-admin/admin-ajax.php?action=load_episodes&post=${postId}`;
+    const episodesHtml = await soraFetch(ajaxUrl);
 
-    // 5) لو ما طلعش شيء نرجع الحلقة 1 الرابط الاساسي
-    if (results.length === 0) {
-      return JSON.stringify([{ number: 1, href: url }]);
-    }
-    return JSON.stringify(results);
-  } catch(err) {
-    console.error("extractEpisodes error:", err);
-    return JSON.stringify([{ number: 1, href: url }]);
-  }
+    const episodes = [...episodesHtml.matchAll(/<a[^>]+onclick="openEpisode\('([^']+)'\)[^>]*>(?:\s*الحلقة)?\s*([^<\n]+)/g)]
+        .map(([, base64, title]) => {
+            const streamUrl = decodeBase64(base64);
+            return streamUrl && title
+                ? {
+                    title: `الحلقة ${title.trim()}`,
+                    url: streamUrl.trim()
+                }
+                : null;
+        })
+        .filter(Boolean)
+        .reverse(); // ترتيب تصاعدي
+
+    return episodes;
 }
 
 function decodeHTMLEntities(text) {
