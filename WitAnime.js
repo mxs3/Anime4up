@@ -91,60 +91,31 @@ async function extractDetails(url) {
 }
 
 async function extractEpisodes(url) {
-    const soraFetch = async (url, options = {}) => {
-        const res = await fetch(url, {
-            ...options,
-            headers: {
-                'User-Agent': 'Sora/Stream',
-                'X-Requested-With': 'XMLHttpRequest',
-                ...options.headers,
-            }
-        });
-        const text = await res.text();
-        return text;
-    };
-
-    const getPostId = html => {
-        const match = html.match(/"post_id":\s*(\d+)/);
-        return match ? match[1] : null;
-    };
-
-    const decodeBase64 = str => {
-        try {
-            return atob(str);
-        } catch {
-            return null;
+    const res = await fetch(url, {
+        headers: {
+            'User-Agent': 'Mozilla/5.0 (Linux; Android 11; Mobile) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/119.0.0.0 Mobile Safari/537.36'
         }
-    };
+    });
+    const html = await res.text();
+    const encoded = html.match(/var\s+encodedEpisodeData\s*=\s*['"]([^'"]+)['"]/);
+    if (!encoded) return [];
 
-    const mainHtml = await soraFetch(url);
-    const postId = getPostId(mainHtml);
-    if (!postId) return [];
+    const decodedJson = atob(encoded[1]);
+    let list = [];
 
-    const ajaxUrl = `https://witanime.world/wp-admin/admin-ajax.php?action=load_episodes&post=${postId}`;
-    let episodesHtml;
     try {
-        episodesHtml = await soraFetch(ajaxUrl);
+        const episodes = JSON.parse(decodedJson);
+        for (const ep of episodes) {
+            list.push({
+                number: parseInt(ep.number),
+                url: ep.url
+            });
+        }
+        list = list.sort((a, b) => a.number - b.number);
+        return list;
     } catch (e) {
         return [];
     }
-
-    if (!episodesHtml.includes("openEpisode")) return [];
-
-    const episodes = [...episodesHtml.matchAll(/<a[^>]+onclick="openEpisode\('([^']+)'\)[^>]*>(?:\s*الحلقة)?\s*([^<\n]+)/g)]
-        .map(([, base64, title]) => {
-            const streamUrl = decodeBase64(base64);
-            return streamUrl && title
-                ? {
-                    title: `الحلقة ${title.trim()}`,
-                    url: streamUrl.trim()
-                }
-                : null;
-        })
-        .filter(Boolean)
-        .reverse();
-
-    return episodes;
 }
 
 function decodeHTMLEntities(text) {
