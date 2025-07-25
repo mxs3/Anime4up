@@ -94,18 +94,34 @@ async function extractEpisodes(url) {
   const res = await fetch(url);
   const html = typeof res === 'string' ? res : await res.text();
 
-  const matches = [...html.matchAll(/<a[^>]+class="overlay"[^>]+onclick="openEpisode\('([^']+)'\)"/g)];
   const episodes = [];
+  const containerMatch = html.match(/<div\s+class="row display-flex"\s+id="DivEpisodesList">([\s\S]*?)<\/div>/);
 
-  for (let i = 0; i < matches.length; i++) {
-    const decoded = atob(matches[i][1]);
-    episodes.push({
-      title: `الحلقة ${i + 1}`,
-      url: decoded
-    });
+  if (!containerMatch) {
+    console.warn("❌ لم يتم العثور على قائمة الحلقات في الصفحة.");
+    return [];
   }
 
-  return episodes.reverse(); // تصاعدي
+  const containerContent = containerMatch[1];
+  const linkRegex = /<a[^>]+href="([^"]+)"[^>]*>[^<]*الحلقة\s*(\d+)[^<]*<\/a>/gi;
+
+  let match;
+  while ((match = linkRegex.exec(containerContent)) !== null) {
+    const href = match[1].trim();
+    const number = parseInt(match[2]);
+
+    if (!isNaN(number)) {
+      episodes.push({
+        title: `الحلقة ${number}`,
+        url: href
+      });
+    }
+  }
+
+  // ترتيب الحلقات تصاعدي
+  episodes.sort((a, b) => a.title.localeCompare(b.title, 'ar', { numeric: true }));
+
+  return episodes;
 }
 
 function decodeHTMLEntities(text) {
