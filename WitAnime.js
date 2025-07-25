@@ -91,65 +91,32 @@ async function extractDetails(url) {
 }
 
 async function extractEpisodes(url) {
-  try {
-    const res = await fetchv2(url, {
-      headers: { "User-Agent": "Mozilla/5.0", "Referer": url }
-    });
-    const html = typeof res === 'string' ? res : await res.text();
-    const episodes = [];
+  const html = await soraFetch(url);
+  const episodes = [];
 
-    // 1. محاولة استخراج anime_id
-    const idMatch = html.match(/anime_select_episode['"]\s*,\s*['"](\d+)['"]/)
-                  || html.match(/anime_id\s*=\s*"(\d+)"/);
-    const animeId = idMatch ? idMatch[1] : null;
-
-    // 2. لو animeId موجود: نجيب من الـ API
-    if (animeId) {
-      const apiRes = await fetchv2("https://witanime.world/wp-admin/admin-ajax.php", {
-        method: "POST",
-        headers: { "User-Agent": "Mozilla/5.0", "Content-Type": "application/x-www-form-urlencoded", "Referer": url },
-        body: `action=anime_select_episode&anime_id=${animeId}`
-      });
-      const apiHtml = await apiRes.text();
-      const apiRegex = /<li[^>]*>\s*<a[^>]+href="([^"]+)"[^>]*>\s*الحلقة\s*(\d+)/gi;
-      let m;
-      while ((m = apiRegex.exec(apiHtml)) !== null) {
-        episodes.push({ href: m[1].trim(), number: parseInt(m[2].trim(),10) });
+  const matches = [...html.matchAll(/onclick="openEpisode\('([^']+)'\)"/g)];
+  for (const match of matches) {
+    try {
+      const encoded = match[1];
+      const decoded = atob(encoded);
+      const numberMatch = decoded.match(/(?:episode|ep|الحلقة)[^\d]{0,5}(\d+)/i);
+      const number = numberMatch ? parseInt(numberMatch[1], 10) : null;
+      if (decoded && number) {
+        episodes.push({
+          title: `الحلقة ${number}`,
+          url: decoded,
+        });
       }
-    }
-
-    // 3. fallback قوي: البحث في HTML نفسه
-    if (episodes.length === 0) {
-      const rec = [...html.matchAll(/<ul[^>]+class=["'][^"']*(?:all-episodes-list|scroll-episodes-list)[^"']*["'][\s\S]*?<\/ul>/i)];
-      if (rec.length) {
-        const ul = rec[0][0];
-        for (const g of ul.matchAll(/onclick=["']openEpisode\('([^']+)'\)["']/gi)) {
-          let enc = g[1];
-          try {
-            const decoded = atob(enc);
-            const numMatch = decoded.match(/الحلقة\s*(\d+)/i);
-            const num = numMatch ? parseInt(numMatch[1],10) : (episodes.length+1);
-            episodes.push({ href: decoded, number: num });
-          } catch {}
-        }
-      }
-      // أو استخراج عام في HTML:
-      else {
-        for (const g of html.matchAll(/<a\s+href="([^"]+)"[^>]*>\s*الحلقة\s*(\d+)/gi)) {
-          episodes.push({ href: g[1].trim(), number: parseInt(g[2].trim(),10) });
-        }
-      }
-    }
-
-    // 4. ترتيب تصاعدي للرقم
-    episodes.sort((a,b)=>a.number - b.number);
-
-    // 5. إذا لا حلقات: fallback الحلقة 1 الرابط نفسه
-    return episodes.length ? JSON.stringify(episodes) : JSON.stringify([{ href: url, number: 1 }]);
-  } catch (err) {
-    console.error("extractEpisodes error:", err);
-    return JSON.stringify([{ href: url, number: 1 }]);
+    } catch (e) {}
   }
+
+  episodes.sort((a, b) => {
+    const na = parseInt(a.title.match(/\d+/)?.[0] || 0);
+    const nb = parseInt(b.title.match(/\d+/)?.[0] || 0);
+    return na - nb;
+  });
+
+  return episodes;
 }
 
 function decodeHTMLEntities(text) {
