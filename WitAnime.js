@@ -44,8 +44,8 @@ async function extractDetails(url) {
     let airdate = "غير معروف";
     let aliases = "غير مصنف";
 
-    // ✅ الوصف: من <div class="anime-story"> أو <div class="story">
-    const descMatch = html.match(/<div[^>]+class="anime-story[^"]*"[^>]*>\s*<p>([\s\S]*?)<\/p>/i);
+    // ✅ الوصف من <p class="anime-story">
+    const descMatch = html.match(/<p class="anime-story">\s*([\s\S]*?)\s*<\/p>/i);
     if (descMatch) {
       const rawDescription = descMatch[1].trim();
       if (rawDescription.length > 0) {
@@ -53,8 +53,8 @@ async function extractDetails(url) {
       }
     }
 
-    // ✅ التصنيفات: من <div class="anime-genres"> أو <div class="genres">
-    const genresMatch = html.match(/<div[^>]+class="anime-genres[^"]*"[^>]*>([\s\S]*?)<\/div>/i);
+    // ✅ التصنيفات من <ul class="anime-genres">...</ul>
+    const genresMatch = html.match(/<ul class="anime-genres">([\s\S]*?)<\/ul>/i);
     if (genresMatch) {
       const genreItems = [...genresMatch[1].matchAll(/<a[^>]*>([^<]+)<\/a>/g)];
       const genres = genreItems.map(m => decodeHTMLEntities(m[1].trim()));
@@ -63,8 +63,8 @@ async function extractDetails(url) {
       }
     }
 
-    // ✅ سنة العرض: من <th>بداية العرض</th> ... <td>xxxx</td>
-    const airdateMatch = html.match(/<tr>\s*<th[^>]*>\s*بداية العرض\s*<\/th>\s*<td[^>]*>\s*(\d{4})\s*<\/td>\s*<\/tr>/i);
+    // ✅ سنة العرض من <span>بداية العرض:</span> 2025
+    const airdateMatch = html.match(/<span>\s*بداية العرض:\s*<\/span>\s*(\d{4})/i);
     if (airdateMatch) {
       const extracted = airdateMatch[1].trim();
       if (/^\d{4}$/.test(extracted)) {
