@@ -91,17 +91,26 @@ async function extractDetails(url) {
 }
 
 async function extractEpisodes(url) {
-  const html = await soraFetch(url);
+  const response = await fetch(url);
+  const html = typeof response === 'string' ? response : await response.text();
+
   const episodes = [];
 
-  // Check if it's a movie page (one direct link only)
-  if (html.includes('class="watch-now"')) {
-    const movieMatch = html.match(/<a[^>]+href="([^"]+)"[^>]*class="[^"]*watch-now[^"]*"/);
-    if (movieMatch) {
-      episodes.push({ title: 'الفيلم', url: movieMatch[1] });
-      return episodes;
+  // Witanime episodes use onclick base64
+  const base64Matches = [...html.matchAll(/onclick="openEpisode\('([^']+)'\)"/g)];
+  if (base64Matches.length > 0) {
+    for (let i = 0; i < base64Matches.length; i++) {
+      const decoded = atob(base64Matches[i][1]);
+      episodes.push({
+        title: `الحلقة ${i + 1}`,
+        url: decoded
+      });
     }
+    return episodes.reverse(); // ترتيب تصاعدي
   }
+
+  return episodes; // لو مفيش حاجة اتسحبت
+}
 
   // Check for onclick-based base64 episodes (like Witanime)
   const base64Matches = [...html.matchAll(/onclick="openEpisode\('([^']+)'\)"/g)];
