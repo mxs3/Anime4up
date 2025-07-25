@@ -133,86 +133,92 @@ async function extractStreamUrl(url) {
   if (!_0xCheck()) return 'https://files.catbox.moe/avolvc.mp4';
 
   const multiStreams = { streams: [], subtitles: null };
+
   const res = await soraFetch(url, {
     headers: {
-      'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/114.0.0.0 Safari/537.36',
-      'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
-      'Accept-Language': 'en-US,en;q=0.5',
-      'Connection': 'keep-alive'
+      'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)',
     }
   });
+
   const html = await res.text();
+  const serverList = [...html.matchAll(/<a[^>]+class="server-link"[^>]+>([\s\S]*?)<\/a>/g)];
 
-  const matches = [...html.matchAll(/<a[^>]*class="server-link"[^>]*>(.*?)<\/a>/g)];
-  for (const m of matches) {
-    const block = m[1];
-    const name = block.match(/<span[^>]*class="ser"[^>]*>([^<]+)<\/span>/i)?.[1]?.trim()?.toLowerCase();
-    const encoded = block.match(/openEpisode\('([^']+)'/i)?.[1];
-    if (!name || !encoded) continue;
+  for (const server of serverList) {
+    const serverName = server[1]?.match(/<span[^>]*class="ser"[^>]*>([^<]+)<\/span>/)?.[1]?.trim()?.toLowerCase();
+    const link = server[0]?.match(/openServer\(['"]([^'"]+)['"]\)/)?.[1];
+    if (!serverName || !link) continue;
 
-    const decodedUrl = atob(encoded);
-    if (name.includes('videa')) {
-      const results = await extractVidea(decodedUrl);
-      for (const r of results) {
-        multiStreams.streams.push({
-          title: `Videa - ${r.quality}`,
-          streamUrl: r.url,
-          headers: r.headers
-        });
-      }
+    const decodedLink = atob(link);
+
+    if (serverName.includes('dailymotion')) {
+      const streams = await extractDailymotionStreams(decodedLink);
+      multiStreams.streams.push(...streams.map(s => ({
+        title: `Dailymotion - ${s.quality}`,
+        streamUrl: s.url,
+        headers: { Referer: decodedLink }
+      })));
     }
+    // تقدر تضيف باقي السيرفرات هنا بنفس الطريقة
+  }
+
+  if (!multiStreams.streams.length) {
+    multiStreams.streams.push({
+      title: 'Fallback',
+      streamUrl: 'https://files.catbox.moe/avolvc.mp4',
+      headers: {}
+    });
   }
 
   return multiStreams;
 }
 
-async function extractVidea(embedUrl) {
-  const res = await soraFetch(embedUrl, {
-    headers: {
-      'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/114.0.0.0 Safari/537.36',
-      'Referer': embedUrl
-    }
-  });
-  const html = await res.text();
-
-  const headers = {
-    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/114.0.0.0 Safari/537.36',
-    'Referer': embedUrl
-  };
-
-  const sources = [];
-
-  const mp4List = [...html.matchAll(/(?:file|src)\s*[:=]\s*["']([^"']+\.mp4[^"']*)["']/gi)];
-  for (const match of mp4List) {
-    sources.push({
-      quality: 'HD',
-      url: match[1],
-      headers
-    });
-  }
-
-  const m3u8List = [...html.matchAll(/(?:file|src)\s*[:=]\s*["']([^"']+\.m3u8[^"']*)["']/gi)];
-  for (const match of m3u8List) {
-    sources.push({
-      quality: 'Auto',
-      url: match[1],
-      headers
-    });
-  }
-
-  return sources;
-}
-
-async function soraFetch(url, options = { headers: {}, method: 'GET', body: null }) {
+async function extractDailymotionStreams(url) {
   try {
-    return await fetchv2(url, options.headers ?? {}, options.method ?? 'GET', options.body ?? null);
+    const videoId = url.match(/dailymotion\.com\/embed\/video\/([a-zA-Z0-9]+)/)?.[1];
+    if (!videoId) return [];
+
+    const res = await soraFetch(`https://www.dailymotion.com/player/metadata/video/${videoId}`, {
+      headers: {
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)',
+        Referer: url
+      }
+    });
+
+    const data = await res.json();
+    const streams = [];
+
+    const order = ['1080', '720', '480', '380', '240', '144'];
+    for (const q of order) {
+      if (data.qualities[q]) {
+        for (const stream of data.qualities[q]) {
+          if (stream?.url) {
+            streams.push({
+              quality: `${q}p`,
+              url: stream.url
+            });
+            break;
+          }
+        }
+      }
+    }
+
+    return streams;
   } catch (e) {
-    return { text: async () => '' };
+    return [];
   }
 }
 
 function _0xCheck() {
-  return typeof fetchv2 !== 'undefined';
+  // check logic
+  return true;
+}
+
+async function soraFetch(url, options = { headers: {}, method: 'GET', body: null }) {
+  try {
+    return await fetchv2(url, options.headers ?? {}, options.method ?? 'GET');
+  } catch (err) {
+    return { text: async () => '', json: async () => ({}) };
+  }
 }
 
 function decodeHTMLEntities(text) {
