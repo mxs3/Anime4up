@@ -91,53 +91,21 @@ async function extractDetails(url) {
 }
 
 async function extractEpisodes(url) {
-  const response = await fetch(url);
-  const html = typeof response === 'string' ? response : await response.text();
+  const res = await fetch(url);
+  const html = typeof res === 'string' ? res : await res.text();
 
+  const matches = [...html.matchAll(/<a[^>]+class="overlay"[^>]+onclick="openEpisode\('([^']+)'\)"/g)];
   const episodes = [];
 
-  // Witanime episodes use onclick base64
-  const base64Matches = [...html.matchAll(/onclick="openEpisode\('([^']+)'\)"/g)];
-  if (base64Matches.length > 0) {
-    for (let i = 0; i < base64Matches.length; i++) {
-      const decoded = atob(base64Matches[i][1]);
-      episodes.push({
-        title: `الحلقة ${i + 1}`,
-        url: decoded
-      });
-    }
-    return episodes.reverse(); // ترتيب تصاعدي
+  for (let i = 0; i < matches.length; i++) {
+    const decoded = atob(matches[i][1]);
+    episodes.push({
+      title: `الحلقة ${i + 1}`,
+      url: decoded
+    });
   }
 
-  return episodes; // لو مفيش حاجة اتسحبت
-}
-
-  // Check for onclick-based base64 episodes (like Witanime)
-  const base64Matches = [...html.matchAll(/onclick="openEpisode\('([^']+)'\)"/g)];
-  if (base64Matches.length > 0) {
-    for (let i = 0; i < base64Matches.length; i++) {
-      const decoded = atob(base64Matches[i][1]);
-      episodes.push({ title: `الحلقة ${i + 1}`, url: decoded });
-    }
-    return episodes.reverse();
-  }
-
-  // Check for direct episode links like: <a href="..." >الحلقة <em>1</em></a>
-  const directEpMatches = [...html.matchAll(/<a[^>]+href="([^"]+)"[^>]*>\s*الحلقة\s*<em>(\d+)<\/em>\s*<\/a>/g)];
-  if (directEpMatches.length > 0) {
-    for (const match of directEpMatches) {
-      episodes.push({ title: `الحلقة ${match[2]}`, url: match[1] });
-    }
-    return episodes;
-  }
-
-  // Fallback: Detect any generic episode link pattern (edit this per site if needed)
-  const genericMatches = [...html.matchAll(/<a[^>]+href="([^"]+)"[^>]*class="[^"]*link-btn[^"]*"/g)];
-  for (let i = 0; i < genericMatches.length; i++) {
-    episodes.push({ title: `الحلقة ${i + 1}`, url: genericMatches[i][1] });
-  }
-
-  return episodes;
+  return episodes.reverse(); // تصاعدي
 }
 
 function decodeHTMLEntities(text) {
