@@ -103,11 +103,17 @@ async function extractEpisodes(url) {
 
     const html = await res.text();
 
-    // ✅ جرب استخراج anime_id
+    // ✅ فحص النوع: Movie أو TV
+    const typeMatch = html.match(/<div[^>]*class="anime-info"[^>]*>\s*<span>النوع:<\/span>\s*([^<\n]+)/);
+    const animeType = typeMatch ? typeMatch[1].trim().toLowerCase() : null;
+
+    if (animeType && animeType.includes("movie")) {
+      return JSON.stringify([{ href: url, number: 1 }]);
+    }
+
     const idMatch = html.match(/anime_id\s*=\s*"(\d+)"/);
     const animeId = idMatch ? idMatch[1] : null;
 
-    // ✅ لو في anime_id نحاول نجيب من الـ API
     if (animeId) {
       const apiRes = await fetchv2("https://witanime.world/wp-admin/admin-ajax.php", {
         method: "POST",
@@ -132,7 +138,6 @@ async function extractEpisodes(url) {
       }
     }
 
-    // ✅ fallback لو الـ API فشل أو مفيش نتائج
     if (results.length === 0) {
       const fallbackRegex = /<a\s+href="([^"]+)"[^>]*>\s*الحلقة\s*(\d+)\s*<\/a>/gi;
       let match;
