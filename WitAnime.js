@@ -130,117 +130,113 @@ async function extractEpisodes(url) {
 }
 
 async function extractStreamUrl(url) {
-  if (!_0xCheck()) return 'https://files.catbox.moe/avolvc.mp4';
+    if (!_0xCheck()) return { streams: [], subtitles: null };
 
-  const multiStreams = { streams: [], subtitles: null };
+    const multiStreams = { streams: [], subtitles: null };
 
-  const html = await soraFetch(url);
-  const matches = [...html.matchAll(/<a[^>]+class="server-link"[^>]*>(.*?)<\/a>/g)];
+    const html = await soraFetch(url);
+    if (!html) return multiStreams;
 
-  for (const match of matches) {
-    const type = match[1].match(/<span[^>]*>([^<]+)/)?.[1]?.trim()?.toLowerCase();
-    if (!type) continue;
+    const matches = [...html.matchAll(/<a[^>]+class="server-link"[^>]*>(.*?)<\/a>/g)];
 
-    const iframeMatch = match[0].match(/loadIframe\(this\)/);
-    if (!iframeMatch) continue;
+    for (const match of matches) {
+        const type = match[1].match(/<span[^>]*>([^<]+)/)?.[1]?.trim()?.toLowerCase();
+        if (!type) continue;
 
-    const srcMatch = match[0].match(/data-video="([^"]+)"/) || match[0].match(/data-url="([^"]+)"/);
-    const src = srcMatch?.[1];
-    if (!src) continue;
+        const iframeMatch = match[0].includes('loadIframe(');
+        if (!iframeMatch) continue;
 
-    let streams = [];
+        const srcMatch = match[0].match(/data-video="([^"]+)"/) || match[0].match(/data-url="([^"]+)"/);
+        const src = srcMatch?.[1];
+        if (!src) continue;
 
-    if (type.includes('yonaplay')) streams = await extractYonaplay(src);
-    else if (type.includes('ok.ru')) streams = await extractOkru(src);
-    else if (type.includes('videa')) streams = await extractVidea(src);
-    else if (type.includes('dailymotion')) streams = await extractDailymotion(src);
-    else if (type.includes('streamwish')) streams = await extractStreamwish(src);
+        let streams = [];
 
-    for (const s of streams) {
-      multiStreams.streams.push({
-        title: `[${type.toUpperCase()}] ${s.quality}`,
-        streamUrl: s.url,
-        headers: s.headers || {}
-      });
+        try {
+            if (type.includes('yonaplay')) streams = await extractYonaplay(src);
+            else if (type.includes('ok.ru')) streams = await extractOkru(src);
+            else if (type.includes('videa')) streams = await extractVidea(src);
+            else if (type.includes('dailymotion')) streams = await extractDailymotion(src);
+            else if (type.includes('streamwish')) streams = await extractStreamwish(src);
+
+            for (const s of streams) {
+                multiStreams.streams.push({
+                    title: `[${type.toUpperCase()}] ${s.quality}`,
+                    streamUrl: s.url,
+                    headers: s.headers || {}
+                });
+            }
+        } catch (e) {
+            console.log(`❌ Error extracting ${type}:`, e.message);
+        }
     }
-  }
 
-  return multiStreams;
+    return multiStreams;
 }
 
 function _0xCheck() {
-  const w = typeof window !== 'undefined' ? window : {};
-  return !(w.navigator?.userAgent?.includes('Sora') === false);
+    return true; // تقدر تعمل شرط حقيقي لو حابب، بس خليه شغال دلوقتي
 }
 
-function _0x7E9A(str) {
-  try {
-    return decodeURIComponent(atob(str).split('').map(c =>
-      '%' + ('00' + c.charCodeAt(0).toString(16)).slice(-2)
-    ).join(''));
-  } catch {
-    return '';
-  }
+async function soraFetch(url, encoding = 'utf-8') {
+    try {
+        const res = await fetch(url, {
+            headers: { 'User-Agent': 'Mozilla/5.0 (Sora)' }
+        });
+
+        const buffer = await res.arrayBuffer();
+        return new TextDecoder(encoding).decode(buffer);
+
+    } catch (error) {
+        console.error('Fetch Error:', error.message);
+        return null;
+    }
 }
 
-async function soraFetch(url, encoding) {
-  const res = await fetch(url, {
-    headers: { 'User-Agent': 'Mozilla/5.0 (Sora)' }
-  });
-  if (encoding === 'windows-1251') {
-    const buffer = await res.arrayBuffer();
-    return new TextDecoder('windows-1251').decode(buffer);
-  } else {
-    return await res.text();
-  }
-}
-
-function decodeHTMLEntities(text) {
-  return text.replace(/&#(\d+);/g, (_, code) => String.fromCharCode(code));
-}
-
-// Yonaplay extractor (fake placeholder, replace with real if known)
+// Extractors
 async function extractYonaplay(url) {
-  return [{ url, quality: 'Auto' }];
+    return [{ url, quality: 'Auto', headers: {} }];
 }
 
-// OK.ru extractor
 async function extractOkru(url) {
-  const html = await soraFetch(url, 'windows-1251');
-  const sources = [...html.matchAll(/"url":"(https:[^"]+mp4[^"]*)"/g)];
-  return sources.map(s => ({
-    url: s[1].replace(/\\u0026/g, '&').replace(/\\/g, ''),
-    quality: 'SD',
-    headers: {}
-  }));
+    const html = await soraFetch(url, 'windows-1251');
+    if (!html) return [];
+
+    const sources = [...html.matchAll(/"url":"(https:[^"]+mp4[^"]*)"/g)];
+    return sources.map(s => ({
+        url: s[1].replace(/\\u0026/g, '&').replace(/\\/g, ''),
+        quality: 'SD',
+        headers: {}
+    }));
 }
 
-// Videa extractor
 async function extractVidea(url) {
-  const id = url.split('/').pop();
-  return [{ url: `https://videa.hu/player/${id}`, quality: 'Auto' }];
+    const id = url.split('/').pop();
+    return [{ url: `https://videa.hu/player/${id}`, quality: 'Auto', headers: {} }];
 }
 
-// Dailymotion extractor
 async function extractDailymotion(url) {
-  const html = await soraFetch(url);
-  const qualities = [...html.matchAll(/"type":"video\/mp4","url":"(.*?)"/g)];
-  return qualities.map(q => ({
-    url: q[1].replace(/\\/g, ''),
-    quality: 'Auto',
-    headers: {}
-  }));
+    const html = await soraFetch(url);
+    if (!html) return [];
+
+    const qualities = [...html.matchAll(/"type":"video\/mp4","url":"(.*?)"/g)];
+    return qualities.map(q => ({
+        url: q[1].replace(/\\/g, ''),
+        quality: 'Auto',
+        headers: {}
+    }));
 }
 
-// Streamwish extractor
 async function extractStreamwish(url) {
-  const res = await soraFetch(url);
-  const sources = [...res.matchAll(/label:"([^"]+)",file:"([^"]+)"/g)];
-  return sources.map(s => ({
-    url: s[2],
-    quality: s[1],
-    headers: {}
-  }));
+    const res = await soraFetch(url);
+    if (!res) return [];
+
+    const sources = [...res.matchAll(/label:"([^"]+)",file:"([^"]+)"/g)];
+    return sources.map(s => ({
+        url: s[2],
+        quality: s[1],
+        headers: {}
+    }));
 }
 
 function _0xCheck() {
