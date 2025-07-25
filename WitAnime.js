@@ -91,6 +91,7 @@ async function extractDetails(url) {
 }
 
 async function extractEpisodes(url) {
+  const results = [];
   try {
     const res = await fetchv2(url, {
       headers: {
@@ -99,60 +100,46 @@ async function extractEpisodes(url) {
       }
     });
     const html = typeof res === "string" ? res : await res.text();
-    const episodes = [];
 
-    // ✅ نبحث داخل البلوك الذي يحتوي على div مع class DivEpisodeContainer
-    const blockRegex = /<div[^>]+class="DivEpisodeContainer"[\s\S]*?<\/div>\s*<\/div>\s*<\/div>/gi;
-    const blocks = [...html.matchAll(blockRegex)];
+    // 1) نشوف لو الصفحة فيها قائمة episodes داخل div row
+    const rowMatch = html.match(/<div[^>]+id=["']DivEpisodesList["'][\s\S]*?<\/div>/i);
+    const block = rowMatch ? rowMatch[0] : html;
 
-    let index = 1;
-    for (const b of blocks) {
-      const blockHtml = b[0];
+    // 2) نبحث على openEpisode encoded
+    const regex1 = /openEpisode\(\s*'([^']+)'\s*\).*?>\s*الحلقة\s*(\d+)/gi;
+    let m;
+    while ((m = regex1.exec(block)) !== null) {
+      try {
+        const decoded = atob(m[1]);
+        const num = parseInt(m[2], 10);
+        if (!isNaN(num)) {
+          results.push({ number: num, href: decoded });
+        }
+      } catch(e){}
+    }
 
-      // link onclick extract
-      const onclickMatch = blockHtml.match(/onclick="openEpisode\('([^']+)'\)"/i);
-      // title رقم الحلقة داخل الحلقة CM
-      const titleMatch = blockHtml.match(/<h3>\s*<a[^>]*>\s*الحلقة\s*(\d+)/i);
-      if (onclickMatch && titleMatch) {
-        let encoded = onclickMatch[1];
-        let number = parseInt(titleMatch[1], 10);
-        try {
-          let decoded = atob(encoded);
-          episodes.push({
-            href: decoded,
-            number: number
-          });
-        } catch (_e) {
-          // لو atob مش شغال أو مفكك، نرجع قيمة مشفرة جزئيا
-          episodes.push({
-            href: encoded,
-            number: number
-          });
+    // 3) fallback: روابط <a href="...">الحلقة N</a>
+    if (results.length === 0) {
+      const regex2 = /<a[^>]+href=["']([^"']+)["'][^>]*>\s*الحلقة\s*(\d+)\s*<\/a>/gi;
+      while ((m = regex2.exec(html)) !== null) {
+        const num = parseInt(m[2], 10);
+        if (!isNaN(num)) {
+          results.push({ number: num, href: m[1].trim() });
         }
       }
-      index++;
     }
 
-    // fallback لو مالقيناش بأي طريقة: نبص داخل html كله على any onclick openEpisode
-    if (episodes.length === 0) {
-      const fallback = [...html.matchAll(/onclick="openEpisode\('([^']+)'\)"/gi)];
-      for (let i = 0; i < fallback.length; i++) {
-        const enc = fallback[i][1];
-        const num = i + 1;
-        let href;
-        try { href = atob(enc); }
-        catch { href = enc; }
-        episodes.push({ href, number: num });
-      }
+    // 4) نسوي ترتيب تصاعدي حسب الرقم
+    results.sort((a,b)=>a.number-b.number);
+
+    // 5) لو ما طلعش شيء نرجع الحلقة 1 الرابط الاساسي
+    if (results.length === 0) {
+      return JSON.stringify([{ number: 1, href: url }]);
     }
-
-    // sort ascending
-    episodes.sort((a, b) => a.number - b.number);
-
-    return JSON.stringify(episodes.length > 0 ? episodes : [{ href: url, number: 1 }]);
-  } catch (err) {
+    return JSON.stringify(results);
+  } catch(err) {
     console.error("extractEpisodes error:", err);
-    return JSON.stringify([{ href: url, number: 1 }]);
+    return JSON.stringify([{ number: 1, href: url }]);
   }
 }
 
