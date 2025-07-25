@@ -148,20 +148,32 @@ async function extractStreamUrl(url) {
     const link = server[0]?.match(/openServer\(['"]([^'"]+)['"]\)/)?.[1];
     if (!serverName || !link) continue;
 
-    const decodedLink = atob(link);
+    let decodedLink;
+    try {
+      decodedLink = atob(link);
+      console.log('[log] Server:', serverName);
+      console.log('[log] Decoded Link:', decodedLink);
+    } catch (e) {
+      console.log('[log] Base64 decode failed for server:', serverName);
+      continue;
+    }
 
     if (serverName.includes('dailymotion')) {
       const streams = await extractDailymotionStreams(decodedLink);
+      console.log('[log] Dailymotion streams:', streams);
+
       multiStreams.streams.push(...streams.map(s => ({
         title: `Dailymotion - ${s.quality}`,
         streamUrl: s.url,
-        headers: { Referer: decodedLink }
+        headers: {
+          Referer: 'https://www.dailymotion.com/'
+        }
       })));
     }
-    // تقدر تضيف باقي السيرفرات هنا بنفس الطريقة
   }
 
   if (!multiStreams.streams.length) {
+    console.log('[log] No streams found. Using fallback.');
     multiStreams.streams.push({
       title: 'Fallback',
       streamUrl: 'https://files.catbox.moe/avolvc.mp4',
@@ -175,12 +187,15 @@ async function extractStreamUrl(url) {
 async function extractDailymotionStreams(url) {
   try {
     const videoId = url.match(/dailymotion\.com\/embed\/video\/([a-zA-Z0-9]+)/)?.[1];
-    if (!videoId) return [];
+    if (!videoId) {
+      console.log('[log] Dailymotion video ID not found.');
+      return [];
+    }
 
     const res = await soraFetch(`https://www.dailymotion.com/player/metadata/video/${videoId}`, {
       headers: {
         'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)',
-        Referer: url
+        Referer: 'https://www.dailymotion.com/'
       }
     });
 
@@ -191,7 +206,7 @@ async function extractDailymotionStreams(url) {
     for (const q of order) {
       if (data.qualities[q]) {
         for (const stream of data.qualities[q]) {
-          if (stream?.url) {
+          if (stream?.url && (stream.url.includes('.mp4') || stream.url.includes('.m3u8'))) {
             streams.push({
               quality: `${q}p`,
               url: stream.url
@@ -204,12 +219,12 @@ async function extractDailymotionStreams(url) {
 
     return streams;
   } catch (e) {
+    console.log('[log] Error in extractDailymotionStreams:', e);
     return [];
   }
 }
 
 function _0xCheck() {
-  // check logic
   return true;
 }
 
