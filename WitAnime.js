@@ -129,6 +129,142 @@ async function extractEpisodes(url) {
   }
 }
 
+async function extractStreamUrl(url) {
+  if (!_0xCheck()) return 'https://files.catbox.moe/avolvc.mp4';
+
+  const res = await soraFetch(url);
+  const html = await res.text();
+
+  const streams = [];
+  const serverBlocks = html.split('<a href="javascript:void(0);" class="server-link"');
+
+  for (let i = 1; i < serverBlocks.length; i++) {
+    const block = serverBlocks[i];
+    const name = (block.match(/<span class="ser">([^<]+)<\/span>/) || [])[1];
+    if (!name) continue;
+
+    streams.push({
+      title: name.trim(),
+      streamUrl: null,
+      headers: defaultHeaders()
+    });
+  }
+
+  const iframeMatch = html.match(/<iframe[^>]+src="([^"]+)"[^>]*><\/iframe>/);
+  if (iframeMatch) {
+    const iframeUrl = iframeMatch[1].startsWith('http') ? iframeMatch[1] : 'https:' + iframeMatch[1];
+
+    if (iframeUrl.includes('videa.hu')) {
+      const videa = await extractVidea(iframeUrl);
+      for (const s of videa) {
+        streams.unshift({
+          title: 'Videa - ' + s.quality,
+          streamUrl: s.url,
+          headers: s.headers
+        });
+      }
+    } else if (iframeUrl.includes('ok.ru')) {
+      const okru = await extractOkru(iframeUrl);
+      for (const s of okru) {
+        streams.unshift({
+          title: 'OK.ru - ' + s.quality,
+          streamUrl: s.url,
+          headers: s.headers
+        });
+      }
+    } else if (iframeUrl.includes('yonaplay')) {
+      streams.unshift({
+        title: 'Yonaplay',
+        streamUrl: iframeUrl,
+        headers: defaultHeaders()
+      });
+    } else {
+      if (streams.length > 0) streams[0].streamUrl = iframeUrl;
+    }
+  }
+
+  for (let i = 0; i < streams.length; i++) {
+    if (!streams[i].streamUrl) {
+      streams[i].streamUrl = 'https://files.catbox.moe/avolvc.mp4';
+    }
+  }
+
+  return {
+    streams,
+    subtitles: null
+  };
+}
+
+async function extractVidea(url) {
+  const res = await soraFetch(url);
+  const html = await res.text();
+
+  const out = [];
+  const match = html.match(/sources:\s*\[([^\]]+)\]/);
+  if (match) {
+    const items = match[1].split('},');
+    for (let item of items) {
+      const file = (item.match(/file\s*:\s*["']([^"']+)["']/) || [])[1];
+      const label = (item.match(/label\s*:\s*["']([^"']+)["']/) || [])[1];
+      if (file) {
+        out.push({
+          url: file,
+          quality: label || 'SD',
+          headers: defaultHeaders()
+        });
+      }
+    }
+  }
+
+  return out;
+}
+
+async function extractOkru(url) {
+  const res = await soraFetch(url, { headers: defaultHeaders() });
+  const html = await res.text();
+
+  const out = [];
+  const json = html.match(/data-options="([^"]+)"/);
+  if (json) {
+    const decoded = decodeURIComponent(json[1]);
+    const fileMatch = decoded.match(/"videos":(\[.*?\])/);
+    if (fileMatch) {
+      try {
+        const videos = JSON.parse(fileMatch[1]);
+        for (const v of videos) {
+          out.push({
+            url: v.url,
+            quality: v.name,
+            headers: defaultHeaders()
+          });
+        }
+      } catch (_) {}
+    }
+  }
+
+  return out;
+}
+
+function defaultHeaders() {
+  return {
+    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)',
+    'Accept': '*/*',
+    'Referer': 'https://witanime.world/'
+  };
+}
+
+async function soraFetch(url, options = { headers: {}, method: 'GET', body: null }) {
+  try {
+    return await fetchv2(url, options.headers ?? {}, options.method ?? 'GET', options.body ?? null);
+  } catch (e) {
+    return { text: async () => '' };
+  }
+}
+
+function _0xCheck() {
+  return typeof fetchv2 !== 'undefined';
+}
+
 function decodeHTMLEntities(text) {
   return text
     .replace(/&#(\d+);/g, (_, dec) => String.fromCharCode(dec))
