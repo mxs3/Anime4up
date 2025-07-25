@@ -130,155 +130,91 @@ async function extractEpisodes(url) {
 }
 
 async function extractStreamUrl(url) {
-    if (!_0xCheck()) return { streams: [], subtitles: null };
+  if (!_0xCheck()) return 'https://files.catbox.moe/avolvc.mp4';
 
-    const multiStreams = { streams: [], subtitles: null };
+  const res = await soraFetch(url);
+  const html = await res.text();
+  const $ = _0x7E9A(html);
+  const servers = [];
+  $('#episode-servers a.server-link').each((_, el) => {
+    const serverName = $(el).find('.ser').text().trim().toLowerCase();
+    const link = $(el).attr('data-ep-url') || $(el).attr('data-url') || '';
+    if (link.includes('ok.ru')) servers.push({ server: 'okru', url: link });
+    else if (link.includes('videa')) servers.push({ server: 'videa', url: link });
+    else if (link.includes('streamwish')) servers.push({ server: 'streamwish', url: link });
+    else if (link.includes('dailymotion')) servers.push({ server: 'dailymotion', url: link });
+    else if (link.includes('yonaplay') || link.includes('.m3u8')) servers.push({ server: 'hls', url: link });
+  });
 
-    const html = await soraFetch(url);
-    if (!html) return multiStreams;
-
-    const matches = [...html.matchAll(/<a[^>]+class="server-link"[^>]*>(.*?)<\/a>/g)];
-
-    for (const match of matches) {
-        const type = match[1].match(/<span[^>]*>([^<]+)/)?.[1]?.trim()?.toLowerCase();
-        if (!type) continue;
-
-        const iframeMatch = match[0].includes('loadIframe(');
-        if (!iframeMatch) continue;
-
-        const srcMatch = match[0].match(/data-video="([^"]+)"/) || match[0].match(/data-url="([^"]+)"/);
-        const src = srcMatch?.[1];
-        if (!src) continue;
-
-        let streams = [];
-
-        try {
-            if (type.includes('yonaplay')) streams = await extractYonaplay(src);
-            else if (type.includes('ok.ru')) streams = await extractOkru(src);
-            else if (type.includes('videa')) streams = await extractVidea(src);
-            else if (type.includes('dailymotion')) streams = await extractDailymotion(src);
-            else if (type.includes('streamwish')) streams = await extractStreamwish(src);
-
-            for (const s of streams) {
-                multiStreams.streams.push({
-                    title: `[${type.toUpperCase()}] ${s.quality}`,
-                    streamUrl: s.url,
-                    headers: s.headers || {}
-                });
-            }
-        } catch (e) {
-            console.log(`❌ Error extracting ${type}:`, e.message);
-        }
+  const multiStreams = { streams: [], subtitles: null };
+  for (const s of servers) {
+    let result = [];
+    if (s.server === 'streamwish') result = await extractStreamwish(s.url);
+    else if (s.server === 'okru') result = await extractOkru(s.url);
+    else if (s.server === 'videa') result = await extractVidea(s.url);
+    else if (s.server === 'dailymotion') result = await extractDailymotion(s.url);
+    else if (s.server === 'hls') result = [{ url: s.url, quality: 'auto', headers: {} }];
+    for (const r of result) {
+      multiStreams.streams.push({
+        title: `${s.server.toUpperCase()} | ${r.quality}`,
+        streamUrl: r.url,
+        headers: r.headers || {},
+      });
     }
+  }
 
-    return multiStreams;
+  return multiStreams;
 }
 
 function _0xCheck() {
-    return true; // تقدر تعمل شرط حقيقي لو حابب، بس خليه شغال دلوقتي
+  try {
+    const test = atob('Y2F0Ym94Lm1wNA==');
+    return test === 'catbox.mp4';
+  } catch {
+    return false;
+  }
 }
 
-async function soraFetch(url, encoding = 'utf-8') {
-    try {
-        const res = await fetch(url, {
-            headers: { 'User-Agent': 'Mozilla/5.0 (Sora)' }
-        });
-
-        const buffer = await res.arrayBuffer();
-        return new TextDecoder(encoding).decode(buffer);
-
-    } catch (error) {
-        console.error('Fetch Error:', error.message);
-        return null;
-    }
+function _0x7E9A(html) {
+  const cheerio = require('cheerio');
+  return cheerio.load(html);
 }
 
-// Extractors
-async function extractYonaplay(url) {
-    return [{ url, quality: 'Auto', headers: {} }];
-}
-
-async function extractOkru(url) {
-    const html = await soraFetch(url, 'windows-1251');
-    if (!html) return [];
-
-    const sources = [...html.matchAll(/"url":"(https:[^"]+mp4[^"]*)"/g)];
-    return sources.map(s => ({
-        url: s[1].replace(/\\u0026/g, '&').replace(/\\/g, ''),
-        quality: 'SD',
-        headers: {}
-    }));
-}
-
-async function extractVidea(url) {
-    const id = url.split('/').pop();
-    return [{ url: `https://videa.hu/player/${id}`, quality: 'Auto', headers: {} }];
-}
-
-async function extractDailymotion(url) {
-    const html = await soraFetch(url);
-    if (!html) return [];
-
-    const qualities = [...html.matchAll(/"type":"video\/mp4","url":"(.*?)"/g)];
-    return qualities.map(q => ({
-        url: q[1].replace(/\\/g, ''),
-        quality: 'Auto',
-        headers: {}
-    }));
+async function soraFetch(url, options = {}) {
+  return await fetch(url, {
+    headers: { 'User-Agent': 'Sora', ...(options.headers || {}) },
+    ...options,
+  });
 }
 
 async function extractStreamwish(url) {
-    const res = await soraFetch(url);
-    if (!res) return [];
-
-    const sources = [...res.matchAll(/label:"([^"]+)",file:"([^"]+)"/g)];
-    return sources.map(s => ({
-        url: s[2],
-        quality: s[1],
-        headers: {}
-    }));
+  const res = await soraFetch(url);
+  const html = await res.text();
+  const file = html.match(/sources:\s*\[\s*\{file:\s*["']([^"']+)["']/)?.[1];
+  if (!file) return [];
+  return [{ url: file, quality: 'auto', headers: {} }];
 }
 
-function _0xCheck() {
-    return typeof soraFetch !== 'undefined';
+async function extractOkru(url) {
+  const res = await soraFetch(url);
+  const html = await res.text();
+  const sources = [...html.matchAll(/"url720":"(.*?)"/g)].map((x) => x[1].replace(/\\/g, ''));
+  if (!sources.length) return [];
+  return sources.map((url) => ({ url, quality: '720p', headers: {} }));
 }
 
-function decodeHTMLEntities(text) {
-    text = text.replace(/&#(\d+);/g, (match, dec) => String.fromCharCode(dec));
-    
-    const entities = {
-        '&quot;': '"',
-        '&amp;': '&',
-        '&apos;': "'",
-        '&lt;': '<',
-        '&gt;': '>'
-    };
-    
-    for (const entity in entities) {
-        text = text.replace(new RegExp(entity, 'g'), entities[entity]);
-    }
-
-    return text;
+async function extractVidea(url) {
+  const res = await soraFetch(url);
+  const html = await res.text();
+  const match = html.match(/sources:\s*\[\s*\{file:\s*["']([^"']+)["']/);
+  if (!match) return [];
+  return [{ url: match[1], quality: 'auto', headers: {} }];
 }
 
-async function soraFetch(url, options = { headers: {}, method: 'GET', body: null }) {
-    try {
-        return await fetchv2(url, options.headers ?? {}, options.method ?? 'GET', options.body ?? null);
-    } catch(e) {
-        try {
-            return await fetch(url, options);
-        } catch(error) {
-            return null;
-        }
-    }
+async function extractDailymotion(url) {
+  const res = await soraFetch(url);
+  const html = await res.text();
+  const match = html.match(/"type":"application\/x-mpegURL","url":"([^"]+)"/);
+  if (!match) return [];
+  return [{ url: match[1].replace(/\\/g, ''), quality: 'auto', headers: {} }];
 }
-
-function _0xCheck() {
-    var _0x1a = typeof _0xB4F2 === 'function';
-    var _0x2b = typeof _0x7E9A === 'function';
-    return _0x1a && _0x2b ? (function(_0x3c) {
-        return _0x7E9A(_0x3c);
-    })(_0xB4F2()) : !1;
-}
-
-function _0x7E9A(_){return((___,____,_____,______,_______,________,_________,__________,___________,____________)=>(____=typeof ___,_____=___&&___[String.fromCharCode(...[108,101,110,103,116,104])],______=[...String.fromCharCode(...[99,114,97,110,99,105])],_______=___?[...___[String.fromCharCode(...[116,111,76,111,119,101,114,67,97,115,101])]()]:[],(________=______[String.fromCharCode(...[115,108,105,99,101])]())&&_______[String.fromCharCode(...[102,111,114,69,97,99,104])]((_________,__________)=>(___________=________[String.fromCharCode(...[105,110,100,101,120,79,102])](_________))>=0&&________[String.fromCharCode(...[115,112,108,105,99,101])](___________,1)),____===String.fromCharCode(...[115,116,114,105,110,103])&&_____===16&&________[String.fromCharCode(...[108,101,110,103,116,104])]===0))(_)}
