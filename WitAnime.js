@@ -90,6 +90,55 @@ async function extractDetails(url) {
   }
 }
 
+async function extractEpisodes(url) {
+  const results = [];
+  try {
+    const res = await fetchv2(url, {
+      headers: {
+        'User-Agent': 'Mozilla/5.0',
+        'Referer': url
+      }
+    });
+    const html = await res.text();
+
+    const typeMatch = html.match(/<div class="anime-info"><span>النوع:<\/span>\s*([^<]+)<\/div>/i);
+    const type = typeMatch ? typeMatch[1].trim().toLowerCase() : "";
+
+    if (type.includes("movie") || type.includes("فيلم")) {
+      return JSON.stringify([{ href: url, number: 1 }]);
+    }
+
+    const episodeMatches = [...html.matchAll(/<a[^>]+class="overlay"[^>]*onclick="openEpisode\('([^']+)'\)/g)];
+    for (let i = 0; i < episodeMatches.length; i++) {
+      const encoded = episodeMatches[i][1].trim();
+      let decoded = "";
+      try {
+        decoded = atob(encoded);
+      } catch {
+        continue;
+      }
+
+      const numMatch = decoded.match(/(?:ep(?:isode)?|e)?[^\d]?(\d+)/i);
+      const number = numMatch ? parseInt(numMatch[1], 10) : i + 1;
+
+      results.push({
+        href: decoded,
+        number
+      });
+    }
+
+    results.sort((a, b) => a.number - b.number);
+
+    if (results.length === 0) {
+      return JSON.stringify([{ href: url, number: 1 }]);
+    }
+
+    return JSON.stringify(results);
+  } catch {
+    return JSON.stringify([{ href: url, number: 1 }]);
+  }
+}
+
 function decodeHTMLEntities(text) {
   try {
     return text
