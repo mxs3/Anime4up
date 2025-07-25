@@ -133,52 +133,75 @@ async function extractStreamUrl(url) {
   if (!_0xCheck()) return 'https://files.catbox.moe/avolvc.mp4';
 
   const multiStreams = { streams: [], subtitles: null };
-
-  const html = await soraFetch(url);
-  const iframeSrc = html.match(/<iframe[^>]+src=["']([^"']*videa[^"']*)["']/)?.[1];
-  if (!iframeSrc) return multiStreams;
-
-  const videaUrl = iframeSrc.startsWith('http') ? iframeSrc : 'https:' + iframeSrc;
-
-  const videaStream = await extractVidea(videaUrl);
-  if (videaStream.length) multiStreams.streams.push(...videaStream);
-
-  return multiStreams;
-}
-
-async function extractVidea(url) {
   const res = await soraFetch(url, {
     headers: {
-      'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)',
-      'Accept': '*/*',
-      'Referer': 'https://witanime.world/'
+      'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/114.0.0.0 Safari/537.36',
+      'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+      'Accept-Language': 'en-US,en;q=0.5',
+      'Connection': 'keep-alive'
     }
   });
   const html = await res.text();
 
-  const sources = [...html.matchAll(/source\s+src=["']([^"']+)["']\s+type=["']video\/mp4["']/g)];
-  const results = sources.map((m, i) => ({
-    url: m[1],
-    quality: ['FHD', 'HD', 'SD'][i] || `Q${i + 1}`,
-    headers: {
-      'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)',
-      'Referer': 'https://videa.hu/',
+  const matches = [...html.matchAll(/<a[^>]*class="server-link"[^>]*>(.*?)<\/a>/g)];
+  for (const m of matches) {
+    const block = m[1];
+    const name = block.match(/<span[^>]*class="ser"[^>]*>([^<]+)<\/span>/i)?.[1]?.trim()?.toLowerCase();
+    const encoded = block.match(/openEpisode\('([^']+)'/i)?.[1];
+    if (!name || !encoded) continue;
+
+    const decodedUrl = atob(encoded);
+    if (name.includes('videa')) {
+      const results = await extractVidea(decodedUrl);
+      for (const r of results) {
+        multiStreams.streams.push({
+          title: `Videa - ${r.quality}`,
+          streamUrl: r.url,
+          headers: r.headers
+        });
+      }
     }
-  }));
-  return results;
+  }
+
+  return multiStreams;
 }
 
-async function soraFetch(url, options = {}) {
-  const opt = {
-    method: options.method || 'GET',
-    headers: options.headers || {},
-    body: options.body || null,
-  };
-  return await fetchv2(url, opt.headers, opt.method, opt.body);
-}
+async function extractVidea(embedUrl) {
+  const res = await soraFetch(embedUrl, {
+    headers: {
+      'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/114.0.0.0 Safari/537.36',
+      'Referer': embedUrl
+    }
+  });
+  const html = await res.text();
 
-function _0xCheck() {
-  return typeof window !== 'undefined' && typeof document !== 'undefined';
+  const sources = [];
+
+  const mp4Match = html.match(/<source\s+src="([^"]+\.mp4)"[^>]*>/i);
+  if (mp4Match) {
+    sources.push({
+      quality: 'HD',
+      url: mp4Match[1],
+      headers: {
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/114.0.0.0 Safari/537.36',
+        'Referer': embedUrl
+      }
+    });
+  }
+
+  const m3u8Match = html.match(/file:\s*["']([^"']+\.m3u8)["']/i);
+  if (m3u8Match) {
+    sources.push({
+      quality: 'Auto',
+      url: m3u8Match[1],
+      headers: {
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/114.0.0.0 Safari/537.36',
+        'Referer': embedUrl
+      }
+    });
+  }
+
+  return sources;
 }
 
 async function soraFetch(url, options = { headers: {}, method: 'GET', body: null }) {
