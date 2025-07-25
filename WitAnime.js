@@ -103,31 +103,35 @@ async function extractEpisodes(url) {
 
     const html = await response.text();
 
-    const typeMatch = html.match(/<div class="anime-info"><span>النوع:<\/span>\s*([^<]+)<\/div>/i);
+    // ✅ استخراج نوع العمل
+    const typeMatch = html.match(/<div class="anime-info"><span>النوع:<\/span>\s*<a[^>]*>([^<]+)<\/a>/i);
     const type = typeMatch ? typeMatch[1].trim().toLowerCase() : "";
 
+    // ✅ لو فيلم: حلقة واحدة فقط
     if (type.includes("movie") || type.includes("فيلم")) {
       return JSON.stringify([{ href: url, number: 1 }]);
     }
 
-    const episodesSection = html.match(/<div[^>]+id=["']DivEpisodesList["'][^>]*>([\s\S]+?)<\/div>/i);
-    if (episodesSection) {
-      const episodeMatches = [...episodesSection[1].matchAll(/<a[^>]+href="([^"]+)"[^>]*>[^<]*الحلقة\s*(\d+)[^<]*<\/a>/gi)];
+    // ✅ استخراج الحلقات من HTML
+    const episodeRegex = /<a\s+href="([^"]+)"[^>]*>\s*<div[^>]*>\s*<span[^>]*>الحلقة\s*(\d+)<\/span>/gi;
 
-      for (const match of episodeMatches) {
-        const episodeUrl = match[1].trim();
-        const episodeNumber = parseInt(match[2].trim(), 10);
-        if (!isNaN(episodeNumber)) {
-          results.push({
-            href: episodeUrl,
-            number: episodeNumber
-          });
-        }
+    let match;
+    while ((match = episodeRegex.exec(html)) !== null) {
+      const episodeUrl = match[1].trim();
+      const episodeNumber = parseInt(match[2].trim(), 10);
+
+      if (!isNaN(episodeNumber)) {
+        results.push({
+          href: episodeUrl,
+          number: episodeNumber
+        });
       }
     }
 
+    // ✅ ترتيب تصاعدي
     results.sort((a, b) => a.number - b.number);
 
+    // ✅ fallback لو مش فيلم بس مفيش حلقات
     if (results.length === 0) {
       return JSON.stringify([{ href: url, number: 1 }]);
     }
