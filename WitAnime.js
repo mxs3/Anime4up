@@ -35,6 +35,65 @@ async function searchResults(keyword) {
   }
 }
 
+async function extractDetails(url) {
+  try {
+    const response = await fetchv2(url); // No headers needed
+    const html = await response.text();
+
+    let description = "لا يوجد وصف متاح.";
+    let airdate = "غير معروف";
+    let aliases = "غير مصنف";
+    let type = "غير معروف";
+
+    const descMatch = html.match(/<div class="story-box">([\s\S]*?)<\/div>/i);
+    if (descMatch) {
+      const rawDescription = descMatch[1].trim();
+      if (rawDescription.length > 0) {
+        description = decodeHTMLEntities(rawDescription);
+      }
+    }
+
+    const genresMatch = html.match(/<span>\s*التصنيف:\s*<\/span>(.*?)<\/li>/i);
+    if (genresMatch) {
+      const genreText = genresMatch[1].replace(/<[^>]+>/g, " ").trim();
+      aliases = decodeHTMLEntities(genreText);
+    }
+
+    const airdateMatch = html.match(/<span>\s*تاريخ الانتاج:\s*<\/span>\s*(\d{4})/i);
+    if (airdateMatch) {
+      const extracted = airdateMatch[1].trim();
+      if (/^\d{4}$/.test(extracted)) {
+        airdate = extracted;
+      }
+    }
+
+    const typeMatch = html.match(/<span>\s*النوع:\s*<\/span>\s*([^<]+)/i);
+    if (typeMatch) {
+      type = typeMatch[1].trim();
+    }
+
+    return JSON.stringify([
+      {
+        description,
+        aliases,
+        airdate: `سنة العرض: ${airdate}`,
+        type
+      }
+    ]);
+
+  } catch (error) {
+    console.error("extractDetails error:", error.message);
+    return JSON.stringify([
+      {
+        description: "تعذر تحميل الوصف.",
+        aliases: "غير مصنف",
+        airdate: "سنة العرض: غير معروفة",
+        type: "غير معروف"
+      }
+    ]);
+  }
+}
+
 function decodeHTMLEntities(text) {
   try {
     return text
