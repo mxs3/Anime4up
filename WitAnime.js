@@ -91,75 +91,44 @@ async function extractDetails(url) {
 }
 
 async function extractEpisodes(url) {
-  const results = [];
+  const html = await soraFetch(url);
+  const episodes = [];
 
-  try {
-    const res = await fetchv2(url, {
-      headers: {
-        "User-Agent": "Mozilla/5.0",
-        "Referer": url
-      }
-    });
-
-    const html = await res.text();
-
-    // ✅ فحص النوع: Movie أو TV
-    const typeMatch = html.match(/<div[^>]*class="anime-info"[^>]*>\s*<span>النوع:<\/span>\s*([^<\n]+)/);
-    const animeType = typeMatch ? typeMatch[1].trim().toLowerCase() : null;
-
-    if (animeType && animeType.includes("movie")) {
-      return JSON.stringify([{ href: url, number: 1 }]);
+  // Check if it's a movie page (one direct link only)
+  if (html.includes('class="watch-now"')) {
+    const movieMatch = html.match(/<a[^>]+href="([^"]+)"[^>]*class="[^"]*watch-now[^"]*"/);
+    if (movieMatch) {
+      episodes.push({ title: 'الفيلم', url: movieMatch[1] });
+      return episodes;
     }
-
-    const idMatch = html.match(/anime_id\s*=\s*"(\d+)"/);
-    const animeId = idMatch ? idMatch[1] : null;
-
-    if (animeId) {
-      const apiRes = await fetchv2("https://witanime.world/wp-admin/admin-ajax.php", {
-        method: "POST",
-        headers: {
-          "User-Agent": "Mozilla/5.0",
-          "Content-Type": "application/x-www-form-urlencoded",
-          "Referer": url
-        },
-        body: `action=anime_select_episode&anime_id=${animeId}`
-      });
-
-      const apiHtml = await apiRes.text();
-
-      const episodeRegex = /<a\s+href="([^"]+)"[^>]*>\s*الحلقة\s*(\d+)/gi;
-      let match;
-      while ((match = episodeRegex.exec(apiHtml)) !== null) {
-        const episodeUrl = match[1].trim();
-        const episodeNumber = parseInt(match[2].trim(), 10);
-        if (!isNaN(episodeNumber)) {
-          results.push({ href: episodeUrl, number: episodeNumber });
-        }
-      }
-    }
-
-    if (results.length === 0) {
-      const fallbackRegex = /<a\s+href="([^"]+)"[^>]*>\s*الحلقة\s*(\d+)\s*<\/a>/gi;
-      let match;
-      while ((match = fallbackRegex.exec(html)) !== null) {
-        const episodeUrl = match[1].trim();
-        const episodeNumber = parseInt(match[2].trim(), 10);
-        if (!isNaN(episodeNumber)) {
-          results.push({ href: episodeUrl, number: episodeNumber });
-        }
-      }
-    }
-
-    results.sort((a, b) => a.number - b.number);
-
-    return results.length > 0
-      ? JSON.stringify(results)
-      : JSON.stringify([{ href: url, number: 1 }]);
-
-  } catch (err) {
-    console.error("extractEpisodes error:", err);
-    return JSON.stringify([{ href: url, number: 1 }]);
   }
+
+  // Check for onclick-based base64 episodes (like Witanime)
+  const base64Matches = [...html.matchAll(/onclick="openEpisode\('([^']+)'\)"/g)];
+  if (base64Matches.length > 0) {
+    for (let i = 0; i < base64Matches.length; i++) {
+      const decoded = atob(base64Matches[i][1]);
+      episodes.push({ title: `الحلقة ${i + 1}`, url: decoded });
+    }
+    return episodes.reverse();
+  }
+
+  // Check for direct episode links like: <a href="..." >الحلقة <em>1</em></a>
+  const directEpMatches = [...html.matchAll(/<a[^>]+href="([^"]+)"[^>]*>\s*الحلقة\s*<em>(\d+)<\/em>\s*<\/a>/g)];
+  if (directEpMatches.length > 0) {
+    for (const match of directEpMatches) {
+      episodes.push({ title: `الحلقة ${match[2]}`, url: match[1] });
+    }
+    return episodes;
+  }
+
+  // Fallback: Detect any generic episode link pattern (edit this per site if needed)
+  const genericMatches = [...html.matchAll(/<a[^>]+href="([^"]+)"[^>]*class="[^"]*link-btn[^"]*"/g)];
+  for (let i = 0; i < genericMatches.length; i++) {
+    episodes.push({ title: `الحلقة ${i + 1}`, url: genericMatches[i][1] });
+  }
+
+  return episodes;
 }
 
 function decodeHTMLEntities(text) {
