@@ -91,72 +91,34 @@ async function extractDetails(url) {
 }
 
 async function extractEpisodes(url) {
-  try {
-    const res = await fetch(url, {
-      headers: { "User-Agent": "Mozilla/5.0", "Referer": url }
+  const soraFetch = async (url) =>
+    await fetchV2(url, {
+      headers: {
+        'User-Agent':
+          'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/122.0.0.0 Safari/537.36',
+        Referer: url,
+      },
+    }).then((res) => res.text());
+
+  const html = await soraFetch(url);
+
+  const episodeRegex = /<a[^>]+class="overlay"[^>]+onclick="openEpisode\('([^']+)'\)/g;
+  const episodes = [];
+  let match;
+  while ((match = episodeRegex.exec(html)) !== null) {
+    const decoded = atob(match[1]);
+    const epMatch = decoded.match(/الحلقة\s*(\d+)/) || decoded.match(/Episode\s*(\d+)/i);
+    const epNum = epMatch ? parseInt(epMatch[1]) : episodes.length + 1;
+    episodes.push({
+      id: match[1],
+      number: epNum,
+      title: `الحلقة ${epNum}`,
+      url: decoded,
     });
-    const html = typeof res === 'string' ? res : await res.text();
-
-    const episodes = [];
-
-    // 1. استخراج من onclick="openEpisode('BASE64')"
-    for (const m of html.matchAll(/onclick="openEpisode\('([^']+)'\)"/gi)) {
-      try {
-        const decoded = atob(m[1]);
-        if (decoded.includes('http')) {
-          episodes.push({ title: '', url: decoded });
-        }
-      } catch {}
-    }
-
-    // 2. استخراج من قائمة <ul class="all-episodes-list"> الحالة الخاصة
-    const ulMatch = html.match(/<ul[^>]+class="[^"]*all-episodes-list[^"]*"[^>]*>([\s\S]*?)<\/ul>/i);
-    if (ulMatch) {
-      const listHtml = ulMatch[1];
-      for (const m of listHtml.matchAll(/onclick="openEpisode\('([^']+)'\)">\s*[^<]*الحلقة\s*(\d+)/gi)) {
-        try {
-          const decoded = atob(m[1]);
-          const num = parseInt(m[2].replace(/[٠-٩]/g, d=>'٠١٢٣٤٥٦٧٨٩'.indexOf(d)));
-          if (!isNaN(num)) {
-            episodes.push({ title: `الحلقة ${num}`, url: decoded });
-          }
-        } catch {}
-      }
-    }
-
-    // 3. استخراج روابط مباشرة مثل <a href="...">الحلقة رقم</a>
-    for (const m of html.matchAll(/<a[^>]+href="([^"]+)"[^>]*>(?:[^<]*?)?الحلقة\s*([\d٠-٩]+)[^<]*<\/a>/gi)) {
-      const href = m[1];
-      const num = parseInt(m[2].replace(/[٠-٩]/g, d=>'٠١٢٣٤٥٦٧٨٩'.indexOf(d)));
-      if (!isNaN(num)) {
-        episodes.push({ title: `الحلقة ${num}`, url: href });
-      }
-    }
-
-    // 4. تهذيب النتائج وتصفية التكرار
-    const map = new Map();
-    episodes.forEach(ep => {
-      if (ep.url && !map.has(ep.url)) {
-        map.set(ep.url, ep);
-      }
-    });
-    const unique = Array.from(map.values());
-
-    // 5. ترتيب تصاعدي حسب الرقم
-    unique.sort((a, b) => {
-      const na = parseInt(a.title.match(/\d+/)?.[0] || 0);
-      const nb = parseInt(b.title.match(/\d+/)?.[0] || 0);
-      return na - nb;
-    });
-
-    if (unique.length) return unique;
-    // fallback حلقة واحدة لو فاضي
-    return [{ title: 'الحلقة 1', url }];
-
-  } catch (err) {
-    console.error("extractEpisodes error:", err);
-    return [{ title: 'الحلقة 1', url }];
   }
+
+  episodes.sort((a, b) => a.number - b.number);
+  return episodes;
 }
 
 function decodeHTMLEntities(text) {
