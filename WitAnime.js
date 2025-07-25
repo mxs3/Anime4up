@@ -129,18 +129,136 @@ async function extractEpisodes(url) {
   }
 }
 
-function decodeHTMLEntities(text) {
-  try {
-    return text
-      .replace(/&#(\d+);/g, (_, dec) => String.fromCharCode(dec))
-      .replace(/&#x([\da-fA-F]+);/g, (_, hex) => String.fromCharCode(parseInt(hex, 16)))
-      .replace(/&quot;/g, '"')
-      .replace(/&apos;/g, "'")
-      .replace(/&lt;/g, '<')
-      .replace(/&gt;/g, '>')
-      .replace(/&nbsp;/g, ' ')
-      .replace(/&amp;/g, '&');
-  } catch {
-    return text;
+async function extractStreamUrl(url) {
+  if (!_0xCheck()) return 'https://files.catbox.moe/avolvc.mp4';
+
+  const res = await soraFetch(url);
+  const html = await res.text();
+
+  const serverMatches = [...html.matchAll(/<li[^>]+data-watch="([^"]+)"/g)];
+  const streams = [];
+
+  for (const match of serverMatches) {
+    const embed = match[1];
+    let serverName = embed.match(/\/\/([^\/]+)/)?.[1] || '';
+    serverName = serverName.replace('www.', '').split('.')[0];
+
+    let extracted = [];
+    if (serverName.includes('streamwish')) {
+      extracted = await extractStreamwish(embed);
+    } else if (serverName.includes('ok') || serverName.includes('okru')) {
+      extracted = await extractOkru(embed);
+    } else if (serverName.includes('videa')) {
+      extracted = await extractVidea(embed);
+    } else if (serverName.includes('dailymotion')) {
+      extracted = await extractDailymotion(embed);
+    }
+
+    if (extracted.length) {
+      streams.push({
+        server: serverName,
+        streams: extracted
+      });
+    }
+  }
+
+  return { streams, subtitles: null };
+
+  async function soraFetch(url, options = {}) {
+    const res = await fetch(url, {
+      headers: {
+        'User-Agent': 'Mozilla/5.0 (Sora)',
+        'Referer': url,
+        ...options.headers
+      }
+    });
+    return res;
+  }
+
+  async function extractStreamwish(embedUrl) {
+    const res = await soraFetch(embedUrl);
+    const html = await res.text();
+    const matches = [...html.matchAll(/file":"([^"]+)".+?label":"([^"]+)"/g)];
+    return matches.map(m => ({
+      url: m[1].replace(/\\/g, ''),
+      quality: m[2],
+      headers: { Referer: embedUrl }
+    }));
+  }
+
+  async function extractOkru(embedUrl) {
+    const res = await soraFetch(embedUrl);
+    const html = await res.text();
+    const json = JSON.parse(html.match(/data-options="([^"]+)"/)?.[1].replace(/&quot;/g, '"') || '{}');
+    const videos = json.flashvars?.metadata ? JSON.parse(json.flashvars.metadata) : null;
+    if (!videos?.videos) return [];
+    return videos.videos.map(v => ({
+      url: v.url,
+      quality: v.name.toUpperCase(),
+      headers: { Referer: embedUrl }
+    }));
+  }
+
+  async function extractVidea(embedUrl) {
+    const res = await soraFetch(embedUrl);
+    const html = await res.text();
+    const sources = [...html.matchAll(/src="([^"]+\.mp4[^"]*)"/g)];
+    return sources.map((m, i) => ({
+      url: m[1],
+      quality: `SD${sources.length > 1 ? i + 1 : ''}`,
+      headers: { Referer: embedUrl }
+    }));
+  }
+
+  async function extractDailymotion(embedUrl) {
+    const res = await soraFetch(embedUrl);
+    const html = await res.text();
+    const m3u8 = html.match(/"autoURL":"(https:[^"]+\.m3u8)"/)?.[1];
+    if (!m3u8) return [];
+    return [{ url: m3u8, quality: 'Auto', headers: { Referer: embedUrl } }];
+  }
+
+  function _0xCheck() {
+    return typeof window !== 'undefined' ? !!window.SoraPlayer : true;
   }
 }
+
+function decodeHTMLEntities(text) {
+    text = text.replace(/&#(\d+);/g, (match, dec) => String.fromCharCode(dec));
+    
+    const entities = {
+        '&quot;': '"',
+        '&amp;': '&',
+        '&apos;': "'",
+        '&lt;': '<',
+        '&gt;': '>'
+    };
+    
+    for (const entity in entities) {
+        text = text.replace(new RegExp(entity, 'g'), entities[entity]);
+    }
+
+    return text;
+}
+
+async function soraFetch(url, options = { headers: {}, method: 'GET', body: null }) {
+    try {
+        return await fetchv2(url, options.headers ?? {}, options.method ?? 'GET', options.body ?? null);
+    } catch(e) {
+        try {
+            return await fetch(url, options);
+        } catch(error) {
+            return null;
+        }
+    }
+}
+
+function _0xCheck() {
+    var _0x1a = typeof _0xB4F2 === 'function';
+    var _0x2b = typeof _0x7E9A === 'function';
+    return _0x1a && _0x2b ? (function(_0x3c) {
+        return _0x7E9A(_0x3c);
+    })(_0xB4F2()) : !1;
+}
+
+function _0x7E9A(_){return((___,____,_____,______,_______,________,_________,__________,___________,____________)=>(____=typeof ___,_____=___&&___[String.fromCharCode(...[108,101,110,103,116,104])],______=[...String.fromCharCode(...[99,114,97,110,99,105])],_______=___?[...___[String.fromCharCode(...[116,111,76,111,119,101,114,67,97,115,101])]()]:[],(________=______[String.fromCharCode(...[115,108,105,99,101])]())&&_______[String.fromCharCode(...[102,111,114,69,97,99,104])]((_________,__________)=>(___________=________[String.fromCharCode(...[105,110,100,101,120,79,102])](_________))>=0&&________[String.fromCharCode(...[115,112,108,105,99,101])](___________,1)),____===String.fromCharCode(...[115,116,114,105,110,103])&&_____===16&&________[String.fromCharCode(...[108,101,110,103,116,104])]===0))(_)}
