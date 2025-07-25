@@ -92,18 +92,20 @@ async function extractDetails(url) {
 
 async function extractEpisodes(url) {
     const soraFetch = async (url, options = {}) => {
-        return await (await fetch(url, {
+        const res = await fetch(url, {
             ...options,
             headers: {
                 'User-Agent': 'Sora/Stream',
                 'X-Requested-With': 'XMLHttpRequest',
                 ...options.headers,
             }
-        })).text();
+        });
+        const text = await res.text();
+        return text;
     };
 
     const getPostId = html => {
-        const match = html.match(/"post_id":(\d+)/);
+        const match = html.match(/"post_id":\s*(\d+)/);
         return match ? match[1] : null;
     };
 
@@ -115,12 +117,19 @@ async function extractEpisodes(url) {
         }
     };
 
-    const html = await soraFetch(url);
-    const postId = getPostId(html);
+    const mainHtml = await soraFetch(url);
+    const postId = getPostId(mainHtml);
     if (!postId) return [];
 
     const ajaxUrl = `https://witanime.world/wp-admin/admin-ajax.php?action=load_episodes&post=${postId}`;
-    const episodesHtml = await soraFetch(ajaxUrl);
+    let episodesHtml;
+    try {
+        episodesHtml = await soraFetch(ajaxUrl);
+    } catch (e) {
+        return [];
+    }
+
+    if (!episodesHtml.includes("openEpisode")) return [];
 
     const episodes = [...episodesHtml.matchAll(/<a[^>]+onclick="openEpisode\('([^']+)'\)[^>]*>(?:\s*الحلقة)?\s*([^<\n]+)/g)]
         .map(([, base64, title]) => {
@@ -133,7 +142,7 @@ async function extractEpisodes(url) {
                 : null;
         })
         .filter(Boolean)
-        .reverse(); // ترتيب تصاعدي
+        .reverse();
 
     return episodes;
 }
