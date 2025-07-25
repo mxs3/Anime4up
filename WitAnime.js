@@ -108,31 +108,21 @@ async function extractEpisodes(url) {
       return JSON.stringify([{ href: url, number: 1 }]);
     }
 
-    const episodeMatches = [...html.matchAll(/<a[^>]+class="overlay"[^>]*onclick="openEpisode\('([^']+)'\)/g)];
-    for (let i = 0; i < episodeMatches.length; i++) {
-      const encoded = episodeMatches[i][1].trim();
-      let decoded = "";
-      try {
-        decoded = atob(encoded);
-      } catch {
-        continue;
+    const encoded = html.match(/var\s+encodedEpisodeData\s*=\s*['"]([^'"]+)['"]/);
+    if (!encoded) return JSON.stringify([{ href: url, number: 1 }]);
+
+    const decodedJson = atob(encoded[1]);
+    const episodes = JSON.parse(decodedJson);
+
+    for (const ep of episodes) {
+      const number = parseInt(ep.number, 10);
+      const href = ep.url.trim();
+      if (!isNaN(number) && href) {
+        results.push({ number, href });
       }
-
-      const numMatch = decoded.match(/(?:ep(?:isode)?|e)?[^\d]?(\d+)/i);
-      const number = numMatch ? parseInt(numMatch[1], 10) : i + 1;
-
-      results.push({
-        href: decoded,
-        number
-      });
     }
 
     results.sort((a, b) => a.number - b.number);
-
-    if (results.length === 0) {
-      return JSON.stringify([{ href: url, number: 1 }]);
-    }
-
     return JSON.stringify(results);
   } catch {
     return JSON.stringify([{ href: url, number: 1 }]);
