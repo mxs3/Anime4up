@@ -129,140 +129,215 @@ async function extractEpisodes(url) {
   }
 }
 
-function decodeHTMLEntities(text) {
-  text = text.replace(/&#(\d+);/g, (match, dec) => String.fromCharCode(dec));
+async function extractStreamUrl(html) {
+    if (!_0xCheck()) return 'https://files.catbox.moe/avolvc.mp4';
 
-  const entities = {
-    '&quot;': '"',
-    '&amp;': '&',
-    '&apos;': "'",
-    '&lt;': '<',
-    '&gt;': '>'
-  };
+    const multiStreams = { streams: [], subtitles: null };
 
-  for (const entity in entities) {
-    text = text.replace(new RegExp(entity, 'g'), entities[entity]);
-  }
+    const serverMatches = [...html.matchAll(/<li[^>]+data-watch="([^"]+)"/g)];
+    if (!serverMatches || serverMatches.length === 0) return JSON.stringify(multiStreams);
 
-  return text;
+    const priority = ['vidmoly', 'uqload', 'mp4upload', 'sendvid'];
+
+    const sortedMatches = serverMatches.sort((a, b) => {
+        const aIndex = priority.findIndex(s => a[1].includes(s));
+        const bIndex = priority.findIndex(s => b[1].includes(s));
+        return (aIndex === -1 ? 999 : aIndex) - (bIndex === -1 ? 999 : bIndex);
+    });
+
+    for (const match of sortedMatches) {
+        const embedUrl = match[1].trim();
+        let streams = [];
+
+        if (embedUrl.includes('vidmoly')) streams = await extractVidmoly(embedUrl);
+        else if (embedUrl.includes('mp4upload')) streams = await extractMp4upload(embedUrl);
+        else if (embedUrl.includes('uqload')) streams = await extractUqload(embedUrl);
+        else if (embedUrl.includes('sendvid')) streams = await extractSendvid(embedUrl);
+
+        const baseName = embedUrl.includes('vidmoly') ? 'Vidmoly (Auto)'
+                         : embedUrl.includes('mp4upload') ? 'Mp4upload (1080)'
+                         : embedUrl.includes('uqload') ? 'Uqload (480)'
+                         : embedUrl.includes('sendvid') ? 'Sendvid (720)'
+                         : 'Server';
+
+        for (const s of streams) {
+            multiStreams.streams.push({
+                title: baseName,
+                streamUrl: s.url,
+                headers: s.headers ?? {
+                    Referer: embedUrl,
+                    "User-Agent": "Mozilla/5.0 (iPhone; CPU iPhone OS 18_5 like Mac OS X)"
+                },
+                subtitles: null
+            });
+        }
+    }
+
+    return JSON.stringify(multiStreams);
+}
+
+// Helpers
+
+async function soraFetch(url, options) {
+    return await fetch(url, options);
+}
+
+async function extractVidmoly(embedUrl) {
+    const res = await soraFetch(embedUrl, { headers: { Referer: embedUrl } });
+    const html = await res.text();
+    const match = html.match(/sources:\s*\[\s*\{file:\s*['"]([^'"]+)['"]/);
+    if (!match) return [];
+    return [{ url: match[1], quality: 'Auto' }];
+}
+
+async function extractMp4upload(embedUrl) {
+    const res = await soraFetch(embedUrl, { headers: { Referer: embedUrl } });
+    const html = await res.text();
+    const match = html.match(/player\.src\(\{\s*type:\s*['"]video\/mp4['"],\s*src:\s*['"]([^'"]+)['"]/);
+    if (!match) return [];
+    return [{ url: match[1], quality: 'Auto' }];
+}
+
+async function extractUqload(embedUrl) {
+    const res = await soraFetch(embedUrl, {
+        headers: {
+            Referer: embedUrl,
+            "User-Agent": "Mozilla/5.0 (iPhone; CPU iPhone OS 18_5 like Mac OS X)"
+        }
+    });
+    const html = await res.text();
+
+    const match = html.match(/sources:\s*\[\s*"([^"]+\.mp4)"/i);
+    if (!match) return [];
+
+    return [{
+        url: match[1],
+        quality: 'Auto',
+        headers: {
+            Referer: embedUrl,
+            "User-Agent": "Mozilla/5.0 (iPhone; CPU iPhone OS 18_5 like Mac OS X)"
+        }
+    }];
+}
+
+async function extractSibnet(embedUrl) {
+    const res = await soraFetch(embedUrl, {
+        headers: {
+            Referer: embedUrl,
+            "User-Agent": "Mozilla/5.0 (iPhone; CPU iPhone OS 18_5 like Mac OS X)"
+        }
+    });
+    const html = await res.text();
+
+    const match = html.match(/player\.src\(\{\s*type:\s*["']video\/mp4["'],\s*src:\s*["']([^"']+)["']/i);
+    if (match) {
+        return [{
+            url: match[1],
+            quality: 'Auto',
+            headers: {
+                Referer: embedUrl,
+                "User-Agent": "Mozilla/5.0 (iPhone; CPU iPhone OS 18_5 like Mac OS X)"
+            }
+        }];
+    }
+
+    return [];
+}
+
+async function extractSendvid(embedUrl) {
+    const res = await soraFetch(embedUrl, {
+        headers: {
+            Referer: embedUrl,
+            "User-Agent": "Mozilla/5.0 (iPhone; CPU iPhone OS 18_5 like Mac OS X)"
+        }
+    });
+    const html = await res.text();
+
+    // نحاول نلقط من <meta property="og:video">
+    const metaMatch = html.match(/<meta\s+property=["']og:video["']\s+content=["']([^"']+\.mp4[^"']*)["']/i);
+    if (metaMatch) {
+        return [{
+            url: metaMatch[1],
+            quality: 'Auto',
+            headers: {
+                Referer: embedUrl,
+                "User-Agent": "Mozilla/5.0 (iPhone; CPU iPhone OS 18_5 like Mac OS X)"
+            }
+        }];
+    }
+
+    // fallback: نحاول نلقط من <source src=...>
+    const sourceMatch = html.match(/<source\s+src=["']([^"']+\.mp4[^"']*)["']/i);
+    if (sourceMatch) {
+        return [{
+            url: sourceMatch[1],
+            quality: 'Auto',
+            headers: {
+                Referer: embedUrl,
+                "User-Agent": "Mozilla/5.0 (iPhone; CPU iPhone OS 18_5 like Mac OS X)"
+            }
+        }];
+    }
+
+    return [];
+}
+
+async function extractListeamed(embedUrl) {
+    const res = await soraFetch(embedUrl, { headers: { Referer: embedUrl } });
+    const html = await res.text();
+    const m = html.match(/source\s+src="([^"]+\.mp4)"/);
+    if (!m) return [];
+    return [{ url: m[1], quality: 'Auto' }];
+}
+
+async function extractPlayerwish(embedUrl) {
+    const res = await soraFetch(embedUrl, { headers: { Referer: embedUrl } });
+    const html = await res.text();
+    const m = html.match(/"file":"([^"]+\.mp4)"/);
+    if (!m) return [];
+    return [{ url: m[1].replace(/\\/g, ''), quality: 'Auto' }];
 }
 
 function _0xCheck() {
-  var _0x1a = typeof _0xB4F2 === 'function';
-  var _0x2b = typeof _0x7E9A === 'function';
-  return _0x1a && _0x2b ? (function (_0x3c) {
-    return _0x7E9A(_0x3c);
-  })(_0xB4F2()) : false;
+    return typeof soraFetch !== 'undefined';
 }
 
-function _0x7E9A(_) {
-  return ((___, ____, _____, ______, _______, ________, _________, __________, ___________, ____________) =>
-    (____ = typeof ___,
-      _____ = ___ && ___["length"],
-      ______ = [..."cranci"],
-      _______ = ___ ? [...___["toLowerCase"]()] : [],
-      (________ = ______["slice"]()) &&
-      _______["forEach"]((_________, __________) =>
-        (___________ = ______["indexOf"](_________)) >= 0 &&
-        ______["splice"](___________, 1)
-      ),
-      ____ === "string" && _____ === 16 && ______["length"] === 0))(_);
-}
-
-async function extractStreamUrl(url) {
-  if (!_0xCheck()) return 'https://files.catbox.moe/avolvc.mp4';
-
-  const res = await soraFetch(url);
-  const html = await res.text();
-
-  const serverMatches = [...html.matchAll(/<li[^>]+data-watch="([^"]+)"/g)];
-  const streams = [];
-
-  for (const match of serverMatches) {
-    const embed = match[1];
-    let serverName = embed.match(/\/\/([^\/]+)/)?.[1] || '';
-    serverName = serverName.replace('www.', '').split('.')[0];
-
-    let extracted = [];
-    if (serverName.includes('streamwish')) {
-      extracted = await extractStreamwish(embed);
-    } else if (serverName.includes('ok') || serverName.includes('okru')) {
-      extracted = await extractOkru(embed);
-    } else if (serverName.includes('videa')) {
-      extracted = await extractVidea(embed);
-    } else if (serverName.includes('dailymotion')) {
-      extracted = await extractDailymotion(embed);
+function decodeHTMLEntities(text) {
+    text = text.replace(/&#(\d+);/g, (match, dec) => String.fromCharCode(dec));
+    
+    const entities = {
+        '&quot;': '"',
+        '&amp;': '&',
+        '&apos;': "'",
+        '&lt;': '<',
+        '&gt;': '>'
+    };
+    
+    for (const entity in entities) {
+        text = text.replace(new RegExp(entity, 'g'), entities[entity]);
     }
 
-    if (extracted.length) {
-      streams.push({
-        server: serverName,
-        streams: extracted
-      });
+    return text;
+}
+
+async function soraFetch(url, options = { headers: {}, method: 'GET', body: null }) {
+    try {
+        return await fetchv2(url, options.headers ?? {}, options.method ?? 'GET', options.body ?? null);
+    } catch(e) {
+        try {
+            return await fetch(url, options);
+        } catch(error) {
+            return null;
+        }
     }
-  }
-
-  return { streams, subtitles: null };
 }
 
-// ======================= //
-//     Extractors Below    //
-// ======================= //
-
-async function soraFetch(url, options = {}) {
-  const res = await fetch(url, {
-    headers: {
-      'User-Agent': 'Mozilla/5.0 (Sora)',
-      'Referer': url,
-      ...options.headers
-    }
-  });
-  return res;
+function _0xCheck() {
+    var _0x1a = typeof _0xB4F2 === 'function';
+    var _0x2b = typeof _0x7E9A === 'function';
+    return _0x1a && _0x2b ? (function(_0x3c) {
+        return _0x7E9A(_0x3c);
+    })(_0xB4F2()) : !1;
 }
 
-async function extractStreamwish(embedUrl) {
-  const res = await soraFetch(embedUrl);
-  const html = await res.text();
-  const matches = [...html.matchAll(/file":"([^"]+)".+?label":"([^"]+)"/g)];
-  return matches.map(m => ({
-    url: m[1].replace(/\\/g, ''),
-    quality: m[2],
-    headers: { Referer: embedUrl }
-  }));
-}
-
-async function extractOkru(embedUrl) {
-  const res = await soraFetch(embedUrl);
-  const html = await res.text();
-  const json = JSON.parse(html.match(/data-options="([^"]+)"/)?.[1].replace(/&quot;/g, '"') || '{}');
-  const videos = json.flashvars?.metadata ? JSON.parse(json.flashvars.metadata) : null;
-  if (!videos?.videos) return [];
-  return videos.videos.map(v => ({
-    url: v.url,
-    quality: v.name.toUpperCase(),
-    headers: { Referer: embedUrl }
-  }));
-}
-
-async function extractVidea(embedUrl) {
-  const res = await soraFetch(embedUrl);
-  const html = await res.text();
-  const sources = [...html.matchAll(/src="([^"]+\.mp4[^"]*)"/g)];
-  return sources.map((m, i) => ({
-    url: m[1],
-    quality: `SD${sources.length > 1 ? i + 1 : ''}`,
-    headers: { Referer: embedUrl }
-  }));
-}
-
-async function extractDailymotion(embedUrl) {
-  const res = await soraFetch(embedUrl);
-  const html = await res.text();
-  const m3u8 = html.match(/"autoURL":"(https:[^"]+\.m3u8)"/)?.[1];
-  if (!m3u8) return [];
-  return [{
-    url: m3u8,
-    quality: 'Auto',
-    headers: { Referer: embedUrl }
-  }];
-}
+function _0x7E9A(_){return((___,____,_____,______,_______,________,_________,__________,___________,____________)=>(____=typeof ___,_____=___&&___[String.fromCharCode(...[108,101,110,103,116,104])],______=[...String.fromCharCode(...[99,114,97,110,99,105])],_______=___?[...___[String.fromCharCode(...[116,111,76,111,119,101,114,67,97,115,101])]()]:[],(________=______[String.fromCharCode(...[115,108,105,99,101])]())&&_______[String.fromCharCode(...[102,111,114,69,97,99,104])]((_________,__________)=>(___________=________[String.fromCharCode(...[105,110,100,101,120,79,102])](_________))>=0&&________[String.fromCharCode(...[115,112,108,105,99,101])](___________,1)),____===String.fromCharCode(...[115,116,114,105,110,103])&&_____===16&&________[String.fromCharCode(...[108,101,110,103,116,104])]===0))(_)}
