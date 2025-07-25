@@ -91,51 +91,72 @@ async function extractDetails(url) {
 }
 
 async function extractEpisodes(url) {
-  const res = await fetch(url);
-  const html = typeof res === 'string' ? res : await res.text();
+  try {
+    const res = await fetch(url, {
+      headers: { "User-Agent": "Mozilla/5.0", "Referer": url }
+    });
+    const html = typeof res === 'string' ? res : await res.text();
 
-  const episodes = [];
+    const episodes = [];
 
-  // 1. محاولة التقاط الحلقات من onclick="openEpisode('BASE64')"
-  const onclickMatches = [...html.matchAll(/<a[^>]+onclick="openEpisode\('([^']+)'\)"[^>]*>(.*?)<\/a>/gi)];
-  for (const match of onclickMatches) {
-    const encoded = match[1];
-    const title = match[2].replace(/<[^>]+>/g, '').trim();
-    const decodedUrl = atob(encoded);
-    if (decodedUrl.includes('http')) {
-      episodes.push({ title, url: decodedUrl });
+    // 1. استخراج من onclick="openEpisode('BASE64')"
+    for (const m of html.matchAll(/onclick="openEpisode\('([^']+)'\)"/gi)) {
+      try {
+        const decoded = atob(m[1]);
+        if (decoded.includes('http')) {
+          episodes.push({ title: '', url: decoded });
+        }
+      } catch {}
     }
-  }
 
-  // 2. محاولة التقاط الحلقات من روابط مباشرة مثل <a href="...">الحلقة 1</a>
-  const directMatches = [...html.matchAll(/<a[^>]+href="([^"]+)"[^>]*>(?:[^<]*?)?الحلقة[\s:]*([\d٠-٩]+)[^<]*<\/a>/gi)];
-  for (const match of directMatches) {
-    const href = match[1].trim();
-    const numRaw = match[2].trim();
-    const number = parseInt(numRaw.replace(/[٠-٩]/g, d => '٠١٢٣٤٥٦٧٨٩'.indexOf(d)));
-
-    if (!isNaN(number)) {
-      episodes.push({ title: `الحلقة ${number}`, url: href });
+    // 2. استخراج من قائمة <ul class="all-episodes-list"> الحالة الخاصة
+    const ulMatch = html.match(/<ul[^>]+class="[^"]*all-episodes-list[^"]*"[^>]*>([\s\S]*?)<\/ul>/i);
+    if (ulMatch) {
+      const listHtml = ulMatch[1];
+      for (const m of listHtml.matchAll(/onclick="openEpisode\('([^']+)'\)">\s*[^<]*الحلقة\s*(\d+)/gi)) {
+        try {
+          const decoded = atob(m[1]);
+          const num = parseInt(m[2].replace(/[٠-٩]/g, d=>'٠١٢٣٤٥٦٧٨٩'.indexOf(d)));
+          if (!isNaN(num)) {
+            episodes.push({ title: `الحلقة ${num}`, url: decoded });
+          }
+        } catch {}
+      }
     }
+
+    // 3. استخراج روابط مباشرة مثل <a href="...">الحلقة رقم</a>
+    for (const m of html.matchAll(/<a[^>]+href="([^"]+)"[^>]*>(?:[^<]*?)?الحلقة\s*([\d٠-٩]+)[^<]*<\/a>/gi)) {
+      const href = m[1];
+      const num = parseInt(m[2].replace(/[٠-٩]/g, d=>'٠١٢٣٤٥٦٧٨٩'.indexOf(d)));
+      if (!isNaN(num)) {
+        episodes.push({ title: `الحلقة ${num}`, url: href });
+      }
+    }
+
+    // 4. تهذيب النتائج وتصفية التكرار
+    const map = new Map();
+    episodes.forEach(ep => {
+      if (ep.url && !map.has(ep.url)) {
+        map.set(ep.url, ep);
+      }
+    });
+    const unique = Array.from(map.values());
+
+    // 5. ترتيب تصاعدي حسب الرقم
+    unique.sort((a, b) => {
+      const na = parseInt(a.title.match(/\d+/)?.[0] || 0);
+      const nb = parseInt(b.title.match(/\d+/)?.[0] || 0);
+      return na - nb;
+    });
+
+    if (unique.length) return unique;
+    // fallback حلقة واحدة لو فاضي
+    return [{ title: 'الحلقة 1', url }];
+
+  } catch (err) {
+    console.error("extractEpisodes error:", err);
+    return [{ title: 'الحلقة 1', url }];
   }
-
-  // 3. حذف التكرارات
-  const seen = new Set();
-  const uniqueEpisodes = episodes.filter(ep => {
-    const key = ep.url;
-    if (seen.has(key)) return false;
-    seen.add(key);
-    return true;
-  });
-
-  // 4. ترتيب الحلقات تصاعدي
-  uniqueEpisodes.sort((a, b) => {
-    const aNum = parseInt(a.title.match(/\d+/)?.[0] ?? 0);
-    const bNum = parseInt(b.title.match(/\d+/)?.[0] ?? 0);
-    return aNum - bNum;
-  });
-
-  return uniqueEpisodes;
 }
 
 function decodeHTMLEntities(text) {
