@@ -175,29 +175,28 @@ async function extractVidea(embedUrl) {
   });
   const html = await res.text();
 
+  const headers = {
+    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/114.0.0.0 Safari/537.36',
+    'Referer': embedUrl
+  };
+
   const sources = [];
 
-  const mp4Match = html.match(/<source\s+src="([^"]+\.mp4)"[^>]*>/i);
-  if (mp4Match) {
+  const mp4List = [...html.matchAll(/(?:file|src)\s*[:=]\s*["']([^"']+\.mp4[^"']*)["']/gi)];
+  for (const match of mp4List) {
     sources.push({
       quality: 'HD',
-      url: mp4Match[1],
-      headers: {
-        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/114.0.0.0 Safari/537.36',
-        'Referer': embedUrl
-      }
+      url: match[1],
+      headers
     });
   }
 
-  const m3u8Match = html.match(/file:\s*["']([^"']+\.m3u8)["']/i);
-  if (m3u8Match) {
+  const m3u8List = [...html.matchAll(/(?:file|src)\s*[:=]\s*["']([^"']+\.m3u8[^"']*)["']/gi)];
+  for (const match of m3u8List) {
     sources.push({
       quality: 'Auto',
-      url: m3u8Match[1],
-      headers: {
-        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/114.0.0.0 Safari/537.36',
-        'Referer': embedUrl
-      }
+      url: match[1],
+      headers
     });
   }
 
