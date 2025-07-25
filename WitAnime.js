@@ -91,32 +91,69 @@ async function extractDetails(url) {
 }
 
 async function extractEpisodes(url) {
-  const html = await soraFetch(url);
-  const episodes = [];
-
-  const matches = [...html.matchAll(/onclick="openEpisode\('([^']+)'\)"/g)];
-  for (const match of matches) {
-    try {
-      const encoded = match[1];
-      const decoded = atob(encoded);
-      const numberMatch = decoded.match(/(?:episode|ep|الحلقة)[^\d]{0,5}(\d+)/i);
-      const number = numberMatch ? parseInt(numberMatch[1], 10) : null;
-      if (decoded && number) {
-        episodes.push({
-          title: `الحلقة ${number}`,
-          url: decoded,
-        });
+  try {
+    const res = await fetchv2(url, {
+      headers: {
+        "User-Agent": "Mozilla/5.0",
+        "Referer": url
       }
-    } catch (e) {}
+    });
+    const html = typeof res === "string" ? res : await res.text();
+    const episodes = [];
+
+    // ✅ نبحث داخل البلوك الذي يحتوي على div مع class DivEpisodeContainer
+    const blockRegex = /<div[^>]+class="DivEpisodeContainer"[\s\S]*?<\/div>\s*<\/div>\s*<\/div>/gi;
+    const blocks = [...html.matchAll(blockRegex)];
+
+    let index = 1;
+    for (const b of blocks) {
+      const blockHtml = b[0];
+
+      // link onclick extract
+      const onclickMatch = blockHtml.match(/onclick="openEpisode\('([^']+)'\)"/i);
+      // title رقم الحلقة داخل الحلقة CM
+      const titleMatch = blockHtml.match(/<h3>\s*<a[^>]*>\s*الحلقة\s*(\d+)/i);
+      if (onclickMatch && titleMatch) {
+        let encoded = onclickMatch[1];
+        let number = parseInt(titleMatch[1], 10);
+        try {
+          let decoded = atob(encoded);
+          episodes.push({
+            href: decoded,
+            number: number
+          });
+        } catch (_e) {
+          // لو atob مش شغال أو مفكك، نرجع قيمة مشفرة جزئيا
+          episodes.push({
+            href: encoded,
+            number: number
+          });
+        }
+      }
+      index++;
+    }
+
+    // fallback لو مالقيناش بأي طريقة: نبص داخل html كله على any onclick openEpisode
+    if (episodes.length === 0) {
+      const fallback = [...html.matchAll(/onclick="openEpisode\('([^']+)'\)"/gi)];
+      for (let i = 0; i < fallback.length; i++) {
+        const enc = fallback[i][1];
+        const num = i + 1;
+        let href;
+        try { href = atob(enc); }
+        catch { href = enc; }
+        episodes.push({ href, number: num });
+      }
+    }
+
+    // sort ascending
+    episodes.sort((a, b) => a.number - b.number);
+
+    return JSON.stringify(episodes.length > 0 ? episodes : [{ href: url, number: 1 }]);
+  } catch (err) {
+    console.error("extractEpisodes error:", err);
+    return JSON.stringify([{ href: url, number: 1 }]);
   }
-
-  episodes.sort((a, b) => {
-    const na = parseInt(a.title.match(/\d+/)?.[0] || 0);
-    const nb = parseInt(b.title.match(/\d+/)?.[0] || 0);
-    return na - nb;
-  });
-
-  return episodes;
 }
 
 function decodeHTMLEntities(text) {
