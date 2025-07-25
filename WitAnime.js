@@ -90,6 +90,56 @@ async function extractDetails(url) {
   }
 }
 
+async function extractEpisodes(url) {
+  const results = [];
+
+  try {
+    const response = await fetchv2(url, {
+      headers: {
+        "User-Agent": "Mozilla/5.0",
+        "Referer": url
+      }
+    });
+
+    const html = await response.text();
+
+    const typeMatch = html.match(/<div class="anime-info"><span>النوع:<\/span>\s*([^<]+)<\/div>/i);
+    const type = typeMatch ? typeMatch[1].trim().toLowerCase() : "";
+
+    if (type.includes("movie") || type.includes("فيلم")) {
+      return JSON.stringify([{ href: url, number: 1 }]);
+    }
+
+    const episodesSection = html.match(/<div[^>]+id=["']DivEpisodesList["'][^>]*>([\s\S]+?)<\/div>/i);
+    if (episodesSection) {
+      const episodeMatches = [...episodesSection[1].matchAll(/<a[^>]+href="([^"]+)"[^>]*>[^<]*الحلقة\s*(\d+)[^<]*<\/a>/gi)];
+
+      for (const match of episodeMatches) {
+        const episodeUrl = match[1].trim();
+        const episodeNumber = parseInt(match[2].trim(), 10);
+        if (!isNaN(episodeNumber)) {
+          results.push({
+            href: episodeUrl,
+            number: episodeNumber
+          });
+        }
+      }
+    }
+
+    results.sort((a, b) => a.number - b.number);
+
+    if (results.length === 0) {
+      return JSON.stringify([{ href: url, number: 1 }]);
+    }
+
+    return JSON.stringify(results);
+
+  } catch (err) {
+    console.error("extractEpisodes error:", err);
+    return JSON.stringify([{ href: url, number: 1 }]);
+  }
+}
+
 function decodeHTMLEntities(text) {
   try {
     return text
