@@ -241,18 +241,6 @@ function decodeHTMLEntities(text) {
     return text;
 }
 
-async function soraFetch(url, options = { headers: {}, method: 'GET', body: null }) {
-    try {
-        return await fetchv2(url, options.headers ?? {}, options.method ?? 'GET', options.body ?? null);
-    } catch(e) {
-        try {
-            return await fetch(url, options);
-        } catch(error) {
-            return null;
-        }
-    }
-}
-
 function _0xCheck() {
     var _0x1a = typeof _0xB4F2 === 'function';
     var _0x2b = typeof _0x7E9A === 'function';
