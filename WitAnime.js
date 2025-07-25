@@ -44,7 +44,8 @@ async function extractDetails(url) {
     let airdate = "غير معروف";
     let aliases = "غير مصنف";
 
-    const descMatch = html.match(/<div class="story">[\s\S]*?<p>(.*?)<\/p>/i);
+    // ✅ الوصف: من <div class="story">
+    const descMatch = html.match(/<div class="story">\s*<p>([\s\S]*?)<\/p>/i);
     if (descMatch) {
       const rawDescription = descMatch[1].trim();
       if (rawDescription.length > 0) {
@@ -52,6 +53,7 @@ async function extractDetails(url) {
       }
     }
 
+    // ✅ التصنيفات: من <div class="genres"> <a>...</a> </div>
     const genresMatch = html.match(/<div class="genres">([\s\S]*?)<\/div>/i);
     if (genresMatch) {
       const genreItems = [...genresMatch[1].matchAll(/<a[^>]*>([^<]+)<\/a>/g)];
@@ -61,7 +63,8 @@ async function extractDetails(url) {
       }
     }
 
-    const airdateMatch = html.match(/<span>\s*بداية العرض\s*:?<\/span>\s*(\d{4})/i);
+    // ✅ سنة العرض: من <span>بداية العرض</span> ... <td>xxxx</td>
+    const airdateMatch = html.match(/<tr>\s*<th[^>]*>\s*بداية العرض\s*<\/th>\s*<td[^>]*>\s*(\d{4})\s*<\/td>\s*<\/tr>/i);
     if (airdateMatch) {
       const extracted = airdateMatch[1].trim();
       if (/^\d{4}$/.test(extracted)) {
@@ -76,9 +79,7 @@ async function extractDetails(url) {
         airdate: `سنة العرض: ${airdate}`
       }
     ]);
-
   } catch (error) {
-    console.error("extractDetails error:", error.message);
     return JSON.stringify([
       {
         description: "تعذر تحميل الوصف.",
