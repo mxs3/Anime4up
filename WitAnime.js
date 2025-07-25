@@ -134,58 +134,72 @@ async function extractStreamUrl(url) {
 
   const multiStreams = { streams: [], subtitles: null };
 
-  console.log('[extractStreamUrl] Fetching episode page:', url);
-
   const res = await soraFetch(url, {
-    headers: {
-      'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)',
-    }
+    headers: { 'User-Agent': 'Mozilla/5.0' }
   });
 
   const html = await res.text();
-  const serverList = [...html.matchAll(/<a[^>]+class="server-link"[^>]+>([\s\S]*?)<\/a>/g)];
+  const servers = [...html.matchAll(/<a[^>]+class="server-link"[^>]*onclick="openServer\('([^']+)'\)"[^>]*>[\s\S]*?<span[^>]*class="ser"[^>]*>([^<]+)<\/span>/g)];
 
-  console.log('[extractStreamUrl] Found server links:', serverList.length);
+  for (const match of servers) {
+    const encodedUrl = match[1];
+    const serverName = match[2]?.trim()?.toLowerCase();
+    const decodedUrl = atob(encodedUrl);
 
-  for (const server of serverList) {
-    const serverName = server[1]?.match(/<span[^>]*class="ser"[^>]*>([^<]+)<\/span>/)?.[1]?.trim()?.toLowerCase();
-    const encodedLink = server[0]?.match(/openServer\(['"]([^'"]+)['"]\)/)?.[1];
-    
-    console.log('[extractStreamUrl] Server found:', serverName);
-    if (!serverName || !encodedLink) {
-      console.log('[extractStreamUrl] Skipping invalid server entry.');
-      continue;
-    }
-
-    let decodedLink = '';
-    try {
-      decodedLink = atob(encodedLink);
-    } catch (e) {
-      console.log('[extractStreamUrl] Failed to decode base64:', encodedLink);
-      continue;
-    }
-
-    console.log(`[extractStreamUrl] Decoded link for ${serverName}:`, decodedLink);
-
-    if (serverName.includes('dailymotion')) {
-      console.log('[extractStreamUrl] Extracting Dailymotion streams...');
-      const streams = await extractDailymotionStreams(decodedLink);
-      console.log('[extractStreamUrl] Dailymotion streams extracted:', streams.length);
-
-      for (const s of streams) {
+    if (serverName.includes("streamwish")) {
+      const links = await extractStreamwish(decodedUrl);
+      for (const l of links) {
         multiStreams.streams.push({
-          title: `Dailymotion - ${s.quality}`,
-          streamUrl: s.url,
-          headers: { Referer: decodedLink }
+          title: `Streamwish - ${l.quality}`,
+          streamUrl: l.url,
+          headers: l.headers
         });
       }
     }
 
-    // تقدر تضيف باقي السيرفرات هنا مع نفس نوع اللوجات
+    if (serverName.includes("ok.ru")) {
+      const links = await extractOkru(decodedUrl);
+      for (const l of links) {
+        multiStreams.streams.push({
+          title: `OK.ru - ${l.quality}`,
+          streamUrl: l.url,
+          headers: l.headers
+        });
+      }
+    }
+
+    if (serverName.includes("videa")) {
+      const links = await extractVidea(decodedUrl);
+      for (const l of links) {
+        multiStreams.streams.push({
+          title: `Videa - ${l.quality}`,
+          streamUrl: l.url,
+          headers: l.headers
+        });
+      }
+    }
+
+    if (serverName.includes("mp4upload")) {
+      const links = await extractMp4upload(decodedUrl);
+      for (const l of links) {
+        multiStreams.streams.push({
+          title: `Mp4upload - ${l.quality}`,
+          streamUrl: l.url,
+          headers: l.headers
+        });
+      }
+    }
+
+    if (serverName.includes("yonaplay")) {
+      multiStreams.streams.push({
+        title: `Yonaplay`,
+        streamUrl: decodedUrl,
+        headers: { Referer: url }
+      });
+    }
   }
 
   if (!multiStreams.streams.length) {
-    console.log('[extractStreamUrl] No streams found, using fallback.');
     multiStreams.streams.push({
       title: 'Fallback',
       streamUrl: 'https://files.catbox.moe/avolvc.mp4',
@@ -196,50 +210,72 @@ async function extractStreamUrl(url) {
   return multiStreams;
 }
 
-async function extractDailymotionStreams(url) {
+// ========== Extractors ==========
+
+async function extractStreamwish(embedUrl) {
   try {
-    console.log('[extractDailymotionStreams] Getting ID from URL:', url);
-    const videoId = url.match(/dailymotion\.com\/embed\/video\/([a-zA-Z0-9]+)/)?.[1];
-
-    if (!videoId) {
-      console.log('[extractDailymotionStreams] No video ID found.');
-      return [];
-    }
-
-    const apiUrl = `https://www.dailymotion.com/player/metadata/video/${videoId}`;
-    console.log('[extractDailymotionStreams] Fetching metadata from:', apiUrl);
-
-    const res = await soraFetch(apiUrl, {
-      headers: {
-        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)',
-        Referer: url
-      }
+    const res = await soraFetch(embedUrl, {
+      headers: { 'User-Agent': 'Mozilla/5.0' }
     });
+    const html = await res.text();
+    const m3u8 = html.match(/file\s*:\s*["'](https:\/\/[^"']+\.m3u8)["']/)?.[1];
+    if (!m3u8) return [];
+    return [{
+      url: m3u8,
+      quality: 'Auto',
+      headers: { Referer: embedUrl }
+    }];
+  } catch { return []; }
+}
 
-    const data = await res.json();
-    const streams = [];
+async function extractOkru(embedUrl) {
+  try {
+    const res = await soraFetch(embedUrl, {
+      headers: { 'User-Agent': 'Mozilla/5.0' }
+    });
+    const html = new TextDecoder('windows-1251').decode(await res.arrayBuffer());
+    const sources = [...html.matchAll(/"url":"(https:[^"]+mp4)","name":"([^"]+)"/g)];
+    return sources.map(s => ({
+      url: s[1].replace(/\\\//g, '/'),
+      quality: s[2],
+      headers: { Referer: embedUrl }
+    }));
+  } catch { return []; }
+}
 
-    const order = ['1080', '720', '480', '380', '240', '144'];
-    for (const q of order) {
-      if (data.qualities[q]) {
-        for (const stream of data.qualities[q]) {
-          if (stream?.url) {
-            streams.push({
-              quality: `${q}p`,
-              url: stream.url
-            });
-            break;
-          }
-        }
-      }
-    }
+async function extractVidea(embedUrl) {
+  try {
+    const res = await soraFetch(embedUrl, {
+      headers: { 'User-Agent': 'Mozilla/5.0' }
+    });
+    const html = await res.text();
+    const file = html.match(/sources:\s*\[\s*{file:"([^"]+\.mp4)"/)?.[1];
+    if (!file) return [];
+    return [{
+      url: file,
+      quality: 'SD',
+      headers: { Referer: embedUrl }
+    }];
+  } catch { return []; }
+}
 
-    console.log('[extractDailymotionStreams] Extracted stream qualities:', streams.map(s => s.quality));
-    return streams;
-  } catch (e) {
-    console.log('[extractDailymotionStreams] Error while extracting:', e.message);
-    return [];
-  }
+async function extractMp4upload(embedUrl) {
+  try {
+    const page = await soraFetch(embedUrl, {
+      headers: { 'User-Agent': 'Mozilla/5.0' }
+    });
+    const html = await page.text();
+
+    const id = html.match(/embed-(\w+)\.html/)?.[1];
+    if (!id) return [];
+
+    const direct = `https://www.mp4upload.com:282/d/${id}/video.mp4`;
+    return [{
+      url: direct,
+      quality: 'HD',
+      headers: { Referer: embedUrl }
+    }];
+  } catch { return []; }
 }
 
 function _0xCheck() {
