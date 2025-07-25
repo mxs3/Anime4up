@@ -90,22 +90,6 @@ async function extractDetails(url) {
   }
 }
 
-function decodeHTMLEntities(text) {
-  try {
-    return text
-      .replace(/&#(\d+);/g, (_, dec) => String.fromCharCode(dec))
-      .replace(/&#x([\da-fA-F]+);/g, (_, hex) => String.fromCharCode(parseInt(hex, 16)))
-      .replace(/&quot;/g, '"')
-      .replace(/&apos;/g, "'")
-      .replace(/&lt;/g, '<')
-      .replace(/&gt;/g, '>')
-      .replace(/&nbsp;/g, ' ')
-      .replace(/&amp;/g, '&');
-  } catch {
-    return text;
-  }
-}
-
 async function extractEpisodes(url) {
     const res = await fetch(url, {
         headers: {
@@ -132,4 +116,20 @@ async function extractEpisodes(url) {
     } catch (e) {
         return [];
     }
+}
+
+function decodeHTMLEntities(text) {
+  try {
+    return text
+      .replace(/&#(\d+);/g, (_, dec) => String.fromCharCode(dec))
+      .replace(/&#x([\da-fA-F]+);/g, (_, hex) => String.fromCharCode(parseInt(hex, 16)))
+      .replace(/&quot;/g, '"')
+      .replace(/&apos;/g, "'")
+      .replace(/&lt;/g, '<')
+      .replace(/&gt;/g, '>')
+      .replace(/&nbsp;/g, ' ')
+      .replace(/&amp;/g, '&');
+  } catch {
+    return text;
+  }
 }
