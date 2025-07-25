@@ -103,35 +103,45 @@ async function extractEpisodes(url) {
 
     const html = await res.text();
 
-    // ✅ استخراج anime_id من الصفحة
+    // ✅ جرب استخراج anime_id
     const idMatch = html.match(/anime_id\s*=\s*"(\d+)"/);
     const animeId = idMatch ? idMatch[1] : null;
 
-    if (!animeId) {
-      return JSON.stringify([{ href: url, number: 1 }]);
+    // ✅ لو في anime_id نحاول نجيب من الـ API
+    if (animeId) {
+      const apiRes = await fetchv2("https://witanime.world/wp-admin/admin-ajax.php", {
+        method: "POST",
+        headers: {
+          "User-Agent": "Mozilla/5.0",
+          "Content-Type": "application/x-www-form-urlencoded",
+          "Referer": url
+        },
+        body: `action=anime_select_episode&anime_id=${animeId}`
+      });
+
+      const apiHtml = await apiRes.text();
+
+      const episodeRegex = /<a\s+href="([^"]+)"[^>]*>\s*الحلقة\s*(\d+)/gi;
+      let match;
+      while ((match = episodeRegex.exec(apiHtml)) !== null) {
+        const episodeUrl = match[1].trim();
+        const episodeNumber = parseInt(match[2].trim(), 10);
+        if (!isNaN(episodeNumber)) {
+          results.push({ href: episodeUrl, number: episodeNumber });
+        }
+      }
     }
 
-    // ✅ طلب الحلقات من API
-    const apiRes = await fetchv2("https://witanime.world/wp-admin/admin-ajax.php", {
-      method: "POST",
-      headers: {
-        "User-Agent": "Mozilla/5.0",
-        "Content-Type": "application/x-www-form-urlencoded",
-        "Referer": url
-      },
-      body: `action=anime_select_episode&anime_id=${animeId}`
-    });
-
-    const apiHtml = await apiRes.text();
-
-    // ✅ استخراج روابط الحلقات
-    const episodeRegex = /<a\s+href="([^"]+)"[^>]*>\s*الحلقة\s*(\d+)/gi;
-    let match;
-    while ((match = episodeRegex.exec(apiHtml)) !== null) {
-      const episodeUrl = match[1].trim();
-      const episodeNumber = parseInt(match[2].trim(), 10);
-      if (!isNaN(episodeNumber)) {
-        results.push({ href: episodeUrl, number: episodeNumber });
+    // ✅ fallback لو الـ API فشل أو مفيش نتائج
+    if (results.length === 0) {
+      const fallbackRegex = /<a\s+href="([^"]+)"[^>]*>\s*الحلقة\s*(\d+)\s*<\/a>/gi;
+      let match;
+      while ((match = fallbackRegex.exec(html)) !== null) {
+        const episodeUrl = match[1].trim();
+        const episodeNumber = parseInt(match[2].trim(), 10);
+        if (!isNaN(episodeNumber)) {
+          results.push({ href: episodeUrl, number: episodeNumber });
+        }
       }
     }
 
