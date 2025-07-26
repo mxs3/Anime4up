@@ -144,7 +144,8 @@ async function extractStreamUrl(html) {
 
   const multiStreams = { streams: [], subtitles: null };
 
-  const serverMatches = [...html.matchAll(/<li[^>]*data-watch=["']([^"']+)["'][^>]*>/g)];
+  // استخراج روابط iframe من صفحة ويت أنمي (ريجيكس جديد وقوي)
+  const serverMatches = [...html.matchAll(/<li[^>]*data-url=["']([^"']+)["'][^>]*>/g)];
   if (!serverMatches || serverMatches.length === 0) {
     multiStreams.streams.push({
       title: "Fallback (No Servers)",
@@ -164,7 +165,8 @@ async function extractStreamUrl(html) {
   });
 
   for (const match of sortedMatches) {
-    const embedUrl = decodeHTMLEntities(match[1].trim());
+    const rawEmbed = match[1].trim();
+    const embedUrl = decodeHTMLEntities(rawEmbed.replace(/\\\//g, "/"));
     let videoUrl = null;
     let type = null;
     let label = "❌ Unknown";
@@ -175,7 +177,7 @@ async function extractStreamUrl(html) {
     };
 
     try {
-      if (embedUrl.includes("dailymotion")) {
+      if (embedUrl.includes("dailymotion.com")) {
         const stream = await extractDailymotion(embedUrl);
         if (stream?.url) {
           videoUrl = stream.url;
@@ -237,9 +239,9 @@ function extractMp4FromHtml(html) {
   return mp4Match ? mp4Match[1].trim() : null;
 }
 
-// ✅ استخراج من دالي موشن
+// ✅ استخراج فيديو دالي موشن
 async function extractDailymotion(iframeUrl) {
-  const videoId = iframeUrl.match(/video=([a-zA-Z0-9]+)/)?.[1];
+  const videoId = iframeUrl.match(/video\/([a-zA-Z0-9]+)/)?.[1];
   if (!videoId) return null;
 
   const apiUrl = `https://www.dailymotion.com/player/metadata/video/${videoId}`;
@@ -275,7 +277,7 @@ async function extractDailymotion(iframeUrl) {
   };
 }
 
-// ✅ دالة soraFetch
+// ✅ دالة fetch مخصصة
 async function soraFetch(url, options = { headers: {}, method: 'GET', body: null }) {
   try {
     return await fetchv2(url, options.headers ?? {}, options.method ?? 'GET');
@@ -284,7 +286,7 @@ async function soraFetch(url, options = { headers: {}, method: 'GET', body: null
   }
 }
 
-// ✅ دالة check
+// ✅ دالة التحقق
 function _0xCheck() {
   var _0x1a = typeof _0xB4F2 === 'function';
   var _0x2b = typeof _0x7E9A === 'function';
