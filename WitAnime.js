@@ -135,16 +135,50 @@ async function extractStreamUrl(url) {
   const html = await (await soraFetch(url)).text();
   const multiStreams = { streams: [], subtitles: null };
 
-  // استخراج روابط iframe للسيرفرات
-  const iframeRegex = /<li[^>]*data-id=["']([^"']+)["'][^>]*data-server=["'][^"']*["'][^>]*>/g;
-  const serverList = [];
+  const regex = /<li[^>]+data-id=["'](\d+)["'][^>]+data-server=["']([^"']+)["']/g;
   let match;
+  const ids = [];
 
-  while ((match = iframeRegex.exec(html)) !== null) {
-    serverList.push(match[1]);
+  while ((match = regex.exec(html)) !== null) {
+    ids.push({ id: match[1], server: match[2] });
   }
 
-  if (!serverList.length) return multiStreams;
+  for (const { id, server } of ids) {
+    if (['videa', 'yonaplay'].includes(server)) continue;
+
+    try {
+      const res = await soraFetch(`https://witanime.world/ajax/embed.php?id=${id}`, {
+        headers: { 'X-Requested-With': 'XMLHttpRequest' }
+      });
+      const json = await res.json();
+      const iframeUrl = json?.src;
+
+      if (!iframeUrl) continue;
+
+      multiStreams.streams.push({
+        streamUrl: iframeUrl,
+        type: "external",
+        quality: "unknown",
+        original: iframeUrl,
+        server
+      });
+    } catch (err) {
+      console.error("Server fetch failed:", err);
+    }
+  }
+
+  if (!multiStreams.streams.length) {
+    multiStreams.streams.push({
+      streamUrl: 'https://files.catbox.moe/avolvc.mp4',
+      type: 'mp4',
+      quality: 'fallback',
+      original: 'fallback',
+      server: 'fallback'
+    });
+  }
+
+  return multiStreams;
+}
 
   // محاولة استخراج كل السيرفرات
   for (const iframeId of serverList) {
