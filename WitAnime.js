@@ -137,10 +137,9 @@ async function extractStreamUrl(url) {
   const html = await (await soraFetch(url)).text();
   const multiStreams = { streams: [], subtitles: null };
 
-  // ريجيكس قوي لسحب كل السيرفرات من صفحة الحلقة
-  const serverRegex = /<li[^>]+data-id=["']?(\d+)["']?[^>]*data-server=["']?([^"'>\s]+)["']?[^>]*>/gi;
-  const servers = [];
+  const serverRegex = /data-id=["'](\d+)["'][^>]+data-server=["'](\w+)["']/g;
   let match;
+  const servers = [];
 
   while ((match = serverRegex.exec(html)) !== null) {
     const id = match[1];
@@ -152,23 +151,25 @@ async function extractStreamUrl(url) {
 
   for (const { id, server } of servers) {
     try {
-      const embedUrl = `https://witanime.world/ajax/embed.php?id=${id}`;
-      const res = await soraFetch(embedUrl, {
+      const apiUrl = `https://witanime.world/ajax/embed.php?id=${id}`;
+      const res = await soraFetch(apiUrl, {
         headers: { 'X-Requested-With': 'XMLHttpRequest' }
       });
-      const json = await res.json();
-      const iframeSrc = json?.src;
-      if (!iframeSrc) continue;
 
-      const extracted = await extractFromEmbed(iframeSrc, server);
+      const json = await res.json();
+      const iframeUrl = json?.src?.startsWith('//') ? `https:${json.src}` : json?.src;
+
+      if (!iframeUrl) continue;
+
+      const extracted = await handleIframe(iframeUrl, server);
       if (extracted) multiStreams.streams.push(extracted);
     } catch (err) {
-      console.error(`[${server}] Error extracting embed:`, err);
+      console.error(`[${server}] fetch/embed failed`, err);
     }
   }
 
   if (!multiStreams.streams.length) {
-    multiStreams.streams.push(fallbackStream().streams[0]);
+    return fallbackStream();
   }
 
   return multiStreams;
@@ -187,212 +188,37 @@ function fallbackStream() {
   };
 }
 
-async function extractFromEmbed(iframeUrl, server) {
+async function handleIframe(iframeUrl, server) {
   try {
-    if (iframeUrl.includes('dailymotion.com')) return await extractDailymotion(iframeUrl);
-    if (iframeUrl.includes('ok.ru')) return await extractOkru(iframeUrl);
-    if (iframeUrl.includes('streamwish')) return await extractStreamWish(iframeUrl);
-    if (iframeUrl.includes('mp4upload.com')) return await extractMp4upload(iframeUrl);
-    if (iframeUrl.includes('upstream.to')) return await extractUpstream(iframeUrl);
-    if (iframeUrl.includes('fembed') || iframeUrl.includes('vcdn')) return await extractFembed(iframeUrl);
-    if (iframeUrl.includes('filemoon')) return await extractFilemoon(iframeUrl);
-    if (iframeUrl.includes('streamtape')) return await extractStreamtape(iframeUrl);
+    const html = await (await soraFetch(iframeUrl)).text();
 
+    // Regexات موحدة لكل السيرفرات القوية
+    const streamMatch = html.match(/file\s*:\s*["']([^"']+\.(mp4|m3u8))["']/) ||
+                        html.match(/sources\s*:\s*\[\s*{file:\s*["']([^"']+)["']/) ||
+                        html.match(/src\s*=\s*["']([^"']+\.m3u8)["']/) ||
+                        html.match(/"hls":\s*{\s*"url":\s*"([^"]+)"/);
+
+    if (streamMatch) {
+      const link = streamMatch[1];
+      return {
+        streamUrl: link,
+        type: link.endsWith('.m3u8') ? 'hls' : 'mp4',
+        quality: 'auto',
+        original: iframeUrl,
+        server: server
+      };
+    }
+
+    // fallback كـ external لو الرابط iframe ومافيش video مباشر
     return {
       streamUrl: iframeUrl,
       type: "external",
       quality: "unknown",
       original: iframeUrl,
-      server: server || "unknown"
+      server: server
     };
   } catch (err) {
-    console.error(`[${server}] extractFromEmbed failed:`, err);
-    return null;
-  }
-}
-
-// --- دوال الاستخراج لكل سيرفر مدعوم ---
-
-async function extractDailymotion(url) {
-  try {
-    const videoID = url.match(/video\/([a-zA-Z0-9]+)/)?.[1];
-    if (!videoID) return null;
-
-    const apiUrl = `https://www.dailymotion.com/player/metadata/video/${videoID}`;
-    const res = await soraFetch(apiUrl);
-    const data = await res.json();
-
-    const hlsUrl = data?.qualities?.auto?.[0]?.url;
-    if (!hlsUrl) return null;
-
-    return {
-      streamUrl: hlsUrl,
-      type: "hls",
-      quality: "auto",
-      original: url,
-      server: "dailymotion"
-    };
-  } catch (err) {
-    console.error("Dailymotion extract error:", err);
-    return null;
-  }
-}
-
-async function extractOkru(url) {
-  try {
-    const res = await soraFetch(url);
-    const html = await res.text();
-    const jsonMatch = html.match(/data-options="([^"]+)"/);
-    if (!jsonMatch) return null;
-
-    const decoded = decodeURIComponent(jsonMatch[1]);
-    const json = JSON.parse(decoded);
-    const metadata = json.flashvars?.metadata;
-    const streamMeta = JSON.parse(metadata);
-
-    const hls = streamMeta.hls?.url || streamMeta.hls4?.url;
-    if (!hls) return null;
-
-    return {
-      streamUrl: hls,
-      type: "hls",
-      quality: "auto",
-      original: url,
-      server: "okru"
-    };
-  } catch (err) {
-    console.error("Okru extract error:", err);
-    return null;
-  }
-}
-
-async function extractStreamWish(url) {
-  try {
-    const res = await soraFetch(url);
-    const html = await res.text();
-    const match = html.match(/sources:\s*\[\s*{\s*file:\s*["'](.*?)["']/);
-    if (!match) return null;
-
-    const file = match[1];
-    return {
-      streamUrl: file,
-      type: file.endsWith('.m3u8') ? 'hls' : 'mp4',
-      quality: "auto",
-      original: url,
-      server: "streamwish"
-    };
-  } catch (err) {
-    console.error("StreamWish extract error:", err);
-    return null;
-  }
-}
-
-async function extractMp4upload(url) {
-  try {
-    const id = url.match(/\/embed-([a-zA-Z0-9]+)\.html/)?.[1];
-    if (!id) return null;
-
-    const res = await soraFetch(`https://www.mp4upload.com/embed-${id}.html`);
-    const html = await res.text();
-
-    const match = html.match(/player\.src\(["']([^"']+)["']\)/);
-    if (!match) return null;
-
-    return {
-      streamUrl: match[1],
-      type: "mp4",
-      quality: "auto",
-      original: url,
-      server: "mp4upload"
-    };
-  } catch (err) {
-    console.error("Mp4upload extract error:", err);
-    return null;
-  }
-}
-
-async function extractUpstream(url) {
-  try {
-    const res = await soraFetch(url);
-    const html = await res.text();
-    const match = html.match(/sources:\s*\[\s*{file:\s*["']([^"']+)["']/);
-    if (!match) return null;
-
-    const file = match[1];
-    return {
-      streamUrl: file,
-      type: file.endsWith('.m3u8') ? 'hls' : 'mp4',
-      quality: "auto",
-      original: url,
-      server: "upstream"
-    };
-  } catch (err) {
-    console.error("Upstream extract error:", err);
-    return null;
-  }
-}
-
-async function extractFembed(url) {
-  try {
-    const res = await soraFetch(url);
-    const html = await res.text();
-    const match = html.match(/sources\s*:\s*(\[[^\]]+\])/);
-    if (!match) return null;
-
-    const sources = JSON.parse(match[1]);
-    const file = sources.find(src => src.file?.includes('m3u8') || src.file?.includes('.mp4'));
-    if (!file) return null;
-
-    return {
-      streamUrl: file.file,
-      type: file.file.endsWith('.m3u8') ? 'hls' : 'mp4',
-      quality: "auto",
-      original: url,
-      server: "fembed"
-    };
-  } catch (err) {
-    console.error("Fembed extract error:", err);
-    return null;
-  }
-}
-
-async function extractFilemoon(url) {
-  try {
-    const res = await soraFetch(url);
-    const html = await res.text();
-    const match = html.match(/file:\s*["']([^"']+)["']/);
-    if (!match) return null;
-
-    const file = match[1];
-    return {
-      streamUrl: file,
-      type: file.endsWith('.m3u8') ? 'hls' : 'mp4',
-      quality: "auto",
-      original: url,
-      server: "filemoon"
-    };
-  } catch (err) {
-    console.error("Filemoon extract error:", err);
-    return null;
-  }
-}
-
-async function extractStreamtape(url) {
-  try {
-    const res = await soraFetch(url);
-    const html = await res.text();
-    const match = html.match(/'robotlink'\s*,\s*'([^']+)'/);
-    if (!match) return null;
-
-    return {
-      streamUrl: `https:${match[1]}`,
-      type: "mp4",
-      quality: "auto",
-      original: url,
-      server: "streamtape"
-    };
-  } catch (err) {
-    console.error("Streamtape extract error:", err);
+    console.error(`[${server}] iframe parse failed`, err);
     return null;
   }
 }
