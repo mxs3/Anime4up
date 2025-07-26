@@ -150,15 +150,21 @@ async function extractStreamUrl(url) {
         headers: { 'X-Requested-With': 'XMLHttpRequest' }
       });
 
+      const contentType = res.headers.get("content-type") || "";
+      if (!contentType.includes("application/json")) {
+        console.warn(`[${server}] Not JSON response, skipping.`);
+        continue;
+      }
+
       const json = await res.json();
-      let iframeUrl = json?.src?.startsWith('//') ? `https:${json.src}` : json?.src;
+      const iframeUrl = json?.src?.startsWith('//') ? `https:${json.src}` : json?.src;
 
       if (!iframeUrl) continue;
 
       const extracted = await extractFromIframe(iframeUrl, server);
       if (extracted) multiStreams.streams.push(extracted);
     } catch (err) {
-      console.error(`[${id}] ${server} failed:`, err);
+      console.error(`[${server}] extraction error:`, err);
     }
   }
 
@@ -209,7 +215,6 @@ async function extractFromIframe(url, server) {
       }
     }
 
-    // fallback في حالة السيرفر مش بيدي بيانات مباشرة
     return {
       streamUrl: url,
       type: 'external',
@@ -219,7 +224,7 @@ async function extractFromIframe(url, server) {
     };
 
   } catch (err) {
-    console.error(`Error parsing iframe: ${url}`, err);
+    console.error(`Iframe parse error for ${server}:`, err);
     return null;
   }
 }
