@@ -172,31 +172,36 @@ async function extractStreamUrl(html) {
             "User-Agent": "Mozilla/5.0 (iPhone; CPU iPhone OS 18_5 like Mac OS X)"
         };
 
+        let label = "❌ Unknown";
+
         try {
-            const response = await soraFetch(embedUrl, { headers });
-            const embedHtml = await response.text();
+            if (embedUrl.includes("dailymotion")) {
+                const stream = await extractDailymotion(embedUrl);
+                if (stream?.url) {
+                    videoUrl = stream.url;
+                    label = `✅ Dailymotion (${stream.quality})`;
+                } else {
+                    label = `❌ Dailymotion (No Stream)`;
+                }
+            } else {
+                const response = await soraFetch(embedUrl, { headers });
+                const embedHtml = await response.text();
 
-            // Match HLS or MP4 based on source
-            let streamMatch = embedHtml.match(/file\s*:\s*["']([^"']+\.m3u8)["']/i)
-                            || embedHtml.match(/source\s+src=["']([^"']+\.mp4)["']/i)
-                            || embedHtml.match(/src\s*:\s*["']([^"']+\.mp4)["']/i)
-                            || embedHtml.match(/['"]?file['"]?\s*[:=]\s*["']([^"']+)["']/i);
+                const streamMatch = embedHtml.match(/file\s*:\s*["']([^"']+\.m3u8)["']/i)
+                    || embedHtml.match(/source\s+src=["']([^"']+\.mp4)["']/i)
+                    || embedHtml.match(/src\s*:\s*["']([^"']+\.mp4)["']/i)
+                    || embedHtml.match(/['"]?file['"]?\s*[:=]\s*["']([^"']+)["']/i);
 
-            if (streamMatch) videoUrl = streamMatch[1].trim();
-        } catch (err) {}
+                if (streamMatch) {
+                    videoUrl = streamMatch[1].trim();
+                }
 
-        const nameMap = {
-            'ok.ru': 'OK.ru',
-            'dailymotion': 'Dailymotion',
-            'streamwish': 'Streamwish',
-            'videa': 'Videa',
-            'yonaplay': 'Yonaplay',
-            'mp4upload': 'MP4Upload',
-            'vidmoly': 'Vidmoly'
-        };
-
-        const baseName = priority.find(key => embedUrl.includes(key)) || "Unknown";
-        const label = videoUrl ? `✅ ${nameMap[baseName] || baseName}` : `❌ ${nameMap[baseName] || baseName} (No Stream)`;
+                const baseName = priority.find(key => embedUrl.includes(key)) || "Unknown";
+                label = videoUrl ? `✅ ${baseName}` : `❌ ${baseName} (No Stream)`;
+            }
+        } catch (err) {
+            console.error("Error extracting stream:", err);
+        }
 
         multiStreams.streams.push({
             title: label,
@@ -207,6 +212,44 @@ async function extractStreamUrl(html) {
     }
 
     return JSON.stringify(multiStreams);
+}
+
+// دالة استخراج فيديو دالي موشن
+async function extractDailymotion(iframeUrl) {
+    const videoId = iframeUrl.match(/video=([a-zA-Z0-9]+)/)?.[1];
+    if (!videoId) return null;
+
+    const apiUrl = `https://www.dailymotion.com/player/metadata/video/${videoId}`;
+    const res = await soraFetch(apiUrl, {
+        headers: {
+            'User-Agent': 'Mozilla/5.0',
+            'Referer': 'https://www.dailymotion.com/'
+        }
+    });
+
+    const json = await res.json();
+    if (!json?.qualities) return null;
+
+    const streams = Object.entries(json.qualities).flatMap(([quality, sources]) =>
+        sources.map(source => ({
+            url: source.url,
+            quality,
+            type: source.type
+        }))
+    );
+
+    const sorted = streams.sort((a, b) => {
+        if (a.type.includes("mpegURL")) return -1;
+        if (b.type.includes("mpegURL")) return 1;
+        return parseInt(b.quality) - parseInt(a.quality);
+    });
+
+    const selected = sorted[0];
+    return {
+        url: selected.url,
+        type: selected.type.includes("mpegURL") ? "hls" : "mp4",
+        quality: selected.quality
+    };
 }
 
 function _0xCheck() {
