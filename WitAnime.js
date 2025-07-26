@@ -129,137 +129,153 @@ async function extractEpisodes(url) {
   }
 }
 
-// ========== دالة استخراج السيرفرات من صفحة الحلقة ==========
 async function extractStreamUrl(html) {
-    if (!_0xCheck()) {
-        return JSON.stringify({
-            streams: [{
-                title: "Fallback (Offline)",
-                streamUrl: "https://files.catbox.moe/avolvc.mp4",
-                headers: {},
-                subtitles: null
-            }],
-            subtitles: null
-        });
-    }
-
-    const multiStreams = { streams: [], subtitles: null };
-
-    const serverMatches = [...html.matchAll(/<li[^>]*data-watch=["']([^"']+)["'][^>]*>/g)];
-    if (!serverMatches || serverMatches.length === 0) {
-        multiStreams.streams.push({
-            title: "Fallback (No Servers)",
-            streamUrl: "https://files.catbox.moe/avolvc.mp4",
-            headers: {},
-            subtitles: null
-        });
-        return JSON.stringify(multiStreams);
-    }
-
-    const priority = ['ok.ru', 'dailymotion', 'streamwish', 'videa', 'yonaplay', 'mp4upload', 'vidmoly'];
-
-    const sortedMatches = serverMatches.sort((a, b) => {
-        const aIndex = priority.findIndex(s => a[1].includes(s));
-        const bIndex = priority.findIndex(s => b[1].includes(s));
-        return (aIndex === -1 ? 999 : aIndex) - (bIndex === -1 ? 999 : bIndex);
+  if (!_0xCheck()) {
+    return JSON.stringify({
+      streams: [{
+        title: "Fallback (Offline)",
+        streamUrl: "https://files.catbox.moe/avolvc.mp4",
+        headers: {},
+        subtitles: null
+      }],
+      subtitles: null
     });
+  }
 
-    for (const match of sortedMatches) {
-        const embedUrl = decodeHTMLEntities(match[1].trim());
-        let videoUrl = null;
-        let headers = {
-            "Referer": embedUrl,
-            "User-Agent": "Mozilla/5.0 (iPhone; CPU iPhone OS 18_5 like Mac OS X)"
-        };
+  const multiStreams = { streams: [], subtitles: null };
 
-        let label = "❌ Unknown";
-
-        try {
-            if (embedUrl.includes("dailymotion")) {
-                const stream = await extractDailymotion(embedUrl);
-                if (stream?.url) {
-                    videoUrl = stream.url;
-                    label = `✅ Dailymotion (${stream.quality})`;
-                } else {
-                    label = `❌ Dailymotion (No Stream)`;
-                }
-            } else {
-                const response = await soraFetch(embedUrl, { headers });
-                const embedHtml = await response.text();
-
-                const streamMatch = embedHtml.match(/file\s*:\s*["']([^"']+\.m3u8)["']/i)
-                    || embedHtml.match(/source\s+src=["']([^"']+\.mp4)["']/i)
-                    || embedHtml.match(/src\s*:\s*["']([^"']+\.mp4)["']/i)
-                    || embedHtml.match(/['"]?file['"]?\s*[:=]\s*["']([^"']+)["']/i);
-
-                if (streamMatch) {
-                    videoUrl = streamMatch[1].trim();
-                }
-
-                const baseName = priority.find(key => embedUrl.includes(key)) || "Unknown";
-                label = videoUrl ? `✅ ${baseName}` : `❌ ${baseName} (No Stream)`;
-            }
-        } catch (err) {
-            console.error("Error extracting stream:", err);
-        }
-
-        multiStreams.streams.push({
-            title: label,
-            streamUrl: videoUrl ?? null,
-            headers,
-            subtitles: null
-        });
-    }
-
+  const serverMatches = [...html.matchAll(/<li[^>]*data-watch=["']([^"']+)["'][^>]*>/g)];
+  if (!serverMatches || serverMatches.length === 0) {
+    multiStreams.streams.push({
+      title: "Fallback (No Servers)",
+      streamUrl: "https://files.catbox.moe/avolvc.mp4",
+      headers: {},
+      subtitles: null
+    });
     return JSON.stringify(multiStreams);
-}
+  }
 
-// دالة استخراج فيديو دالي موشن
-async function extractDailymotion(iframeUrl) {
-    const videoId = iframeUrl.match(/video=([a-zA-Z0-9]+)/)?.[1];
-    if (!videoId) return null;
+  const priority = ['ok.ru', 'dailymotion', 'streamwish', 'videa', 'yonaplay', 'mp4upload', 'vidmoly'];
 
-    const apiUrl = `https://www.dailymotion.com/player/metadata/video/${videoId}`;
-    const res = await soraFetch(apiUrl, {
-        headers: {
-            'User-Agent': 'Mozilla/5.0',
-            'Referer': 'https://www.dailymotion.com/'
-        }
-    });
+  const sortedMatches = serverMatches.sort((a, b) => {
+    const aIndex = priority.findIndex(s => a[1].includes(s));
+    const bIndex = priority.findIndex(s => b[1].includes(s));
+    return (aIndex === -1 ? 999 : aIndex) - (bIndex === -1 ? 999 : bIndex);
+  });
 
-    const json = await res.json();
-    if (!json?.qualities) return null;
+  for (const match of sortedMatches) {
+    const embedUrl = decodeHTMLEntities(match[1].trim());
+    let videoUrl = null;
+    let type = null;
+    let label = "❌ Unknown";
 
-    const streams = Object.entries(json.qualities).flatMap(([quality, sources]) =>
-        sources.map(source => ({
-            url: source.url,
-            quality,
-            type: source.type
-        }))
-    );
-
-    const sorted = streams.sort((a, b) => {
-        if (a.type.includes("mpegURL")) return -1;
-        if (b.type.includes("mpegURL")) return 1;
-        return parseInt(b.quality) - parseInt(a.quality);
-    });
-
-    const selected = sorted[0];
-    return {
-        url: selected.url,
-        type: selected.type.includes("mpegURL") ? "hls" : "mp4",
-        quality: selected.quality
+    const headers = {
+      "Referer": embedUrl,
+      "User-Agent": "Mozilla/5.0 (iPhone; CPU iPhone OS 18_5 like Mac OS X)"
     };
+
+    try {
+      if (embedUrl.includes("dailymotion")) {
+        const stream = await extractDailymotion(embedUrl);
+        if (stream?.url) {
+          videoUrl = stream.url;
+          type = stream.type;
+          label = `✅ Dailymotion (${stream.quality})`;
+        } else {
+          label = `❌ Dailymotion (No Stream)`;
+        }
+      } else {
+        const response = await soraFetch(embedUrl, { headers });
+        const embedHtml = await response.text();
+
+        const hls = extractHlsFromHtml(embedHtml);
+        const mp4 = extractMp4FromHtml(embedHtml);
+
+        if (hls) {
+          videoUrl = hls;
+          type = "hls";
+        } else if (mp4) {
+          videoUrl = mp4;
+          type = "mp4";
+        }
+
+        const baseName = priority.find(key => embedUrl.includes(key)) || "Unknown";
+        label = videoUrl ? `✅ ${baseName} (${type.toUpperCase()})` : `❌ ${baseName} (No Stream)`;
+      }
+    } catch (err) {
+      console.error("Error extracting stream:", err);
+    }
+
+    multiStreams.streams.push({
+      title: label,
+      streamUrl: videoUrl,
+      headers,
+      subtitles: null
+    });
+  }
+
+  return JSON.stringify(multiStreams);
 }
 
-function _0xCheck() {
-    var _0x1a = typeof _0xB4F2 === 'function';
-    var _0x2b = typeof _0x7E9A === 'function';
-    return _0x1a && _0x2b ? (function (_0x3c) {
-        return _0x7E9A(_0x3c);
-    })(_0xB4F2()) : !1;
+// ✅ استخراج HLS من HTML
+function extractHlsFromHtml(html) {
+  const hlsMatch =
+    html.match(/["']?file["']?\s*[:=]\s*["']([^"']+\.m3u8[^"']*)["']/i) ||
+    html.match(/source[^>]+src=["']([^"']+\.m3u8[^"']*)["']/i) ||
+    html.match(/src\s*:\s*["']([^"']+\.m3u8[^"']*)["']/i);
+
+  return hlsMatch ? hlsMatch[1].trim() : null;
 }
 
+// ✅ استخراج MP4 من HTML
+function extractMp4FromHtml(html) {
+  const mp4Match =
+    html.match(/["']?file["']?\s*[:=]\s*["']([^"']+\.mp4[^"']*)["']/i) ||
+    html.match(/source[^>]+src=["']([^"']+\.mp4[^"']*)["']/i) ||
+    html.match(/src\s*:\s*["']([^"']+\.mp4[^"']*)["']/i);
+
+  return mp4Match ? mp4Match[1].trim() : null;
+}
+
+// ✅ استخراج من دالي موشن
+async function extractDailymotion(iframeUrl) {
+  const videoId = iframeUrl.match(/video=([a-zA-Z0-9]+)/)?.[1];
+  if (!videoId) return null;
+
+  const apiUrl = `https://www.dailymotion.com/player/metadata/video/${videoId}`;
+  const res = await soraFetch(apiUrl, {
+    headers: {
+      'User-Agent': 'Mozilla/5.0',
+      'Referer': 'https://www.dailymotion.com/'
+    }
+  });
+
+  const json = await res.json();
+  if (!json?.qualities) return null;
+
+  const streams = Object.entries(json.qualities).flatMap(([quality, sources]) =>
+    sources.map(source => ({
+      url: source.url,
+      quality,
+      type: source.type
+    }))
+  );
+
+  const sorted = streams.sort((a, b) => {
+    if (a.type.includes("mpegURL")) return -1;
+    if (b.type.includes("mpegURL")) return 1;
+    return parseInt(b.quality) - parseInt(a.quality);
+  });
+
+  const selected = sorted[0];
+  return {
+    url: selected.url,
+    type: selected.type.includes("mpegURL") ? "hls" : "mp4",
+    quality: selected.quality
+  };
+}
+
+// ✅ دالة soraFetch
 async function soraFetch(url, options = { headers: {}, method: 'GET', body: null }) {
   try {
     return await fetchv2(url, options.headers ?? {}, options.method ?? 'GET');
@@ -268,6 +284,16 @@ async function soraFetch(url, options = { headers: {}, method: 'GET', body: null
   }
 }
 
+// ✅ دالة check
+function _0xCheck() {
+  var _0x1a = typeof _0xB4F2 === 'function';
+  var _0x2b = typeof _0x7E9A === 'function';
+  return _0x1a && _0x2b ? (function (_0x3c) {
+    return _0x7E9A(_0x3c);
+  })(_0xB4F2()) : !1;
+}
+
+// ✅ فك ترميز HTML
 function decodeHTMLEntities(text) {
   return text
     .replace(/&#(\d+);/g, (_, dec) => String.fromCharCode(dec))
