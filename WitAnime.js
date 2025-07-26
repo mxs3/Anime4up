@@ -129,108 +129,97 @@ async function extractEpisodes(url) {
   }
 }
 
-async function extractStreamUrl(url) {
-  if (!_0xCheck()) return fallbackStream();
+async function extractStreamUrl(html) {
+    // 1. محاولة استخراج روابط مباشرة (mp4 / m3u8)
+    const directLink = html.match(/(https?:\/\/[^\s"'<>]+?\.(mp4|m3u8)[^\s"'<>]*)/i)?.[1];
+    if (directLink) return directLink;
 
-  const html = await (await fetchv2(url)).text();
-  const multiStreams = { streams: [], subtitles: null };
+    // 2. البحث عن embed / iframe / data-source
+    const embedMatch = html.match(/(?:data-src|data-source|src|href)=["'](https?:\/\/[^"']+)["']/i);
+    const embedUrl = embedMatch?.[1];
+    if (!embedUrl) return null;
 
-  const serverRegex = /<li[^>]+data-id=["'](\d+)["'][^>]+data-server=["']([^"']+)["']/g;
-  const matches = [...html.matchAll(serverRegex)];
-  const servers = matches.map(m => ({ id: m[1], server: m[2] }));
+    // 3. تحميل صفحة السيرفر
+    const res = await fetch(embedUrl);
+    const text = await res.text();
 
-  for (const { id, server } of servers) {
-    try {
-      const res = await fetchv2(`https://witanime.world/ajax/embed.php?id=${id}`, {
-        'X-Requested-With': 'XMLHttpRequest'
-      });
+    // 4. محاولة استخراج mp4/m3u8 مرة تانية من داخل صفحة السيرفر
+    const innerMatch = text.match(/(https?:\/\/[^\s"'<>]+?\.(mp4|m3u8)[^\s"'<>]*)/i)?.[1];
+    if (innerMatch) return innerMatch;
 
-      const json = await res.json();
-      const iframeUrl = json?.src;
-      if (!iframeUrl) continue;
-
-      const extracted = await extractFromEmbed(iframeUrl, server);
-      if (extracted) multiStreams.streams.push(extracted);
-
-    } catch (err) {
-      console.error(`[${server}] Fetch failed:`, err);
-    }
-  }
-
-  if (!multiStreams.streams.length) multiStreams.streams.push(fallbackStream());
-
-  return multiStreams;
-}
-
-function fallbackStream() {
-  return {
-    streamUrl: 'https://files.catbox.moe/avolvc.mp4',
-    type: 'mp4',
-    quality: 'fallback',
-    original: 'fallback',
-    server: 'fallback'
-  };
-}
-
-async function extractFromEmbed(url, serverName) {
-  try {
-    const res = await fetchv2(url);
-    const html = await res.text();
-
-    if (url.includes("dailymotion")) {
-      const id = url.match(/video\/([^/?]+)/)?.[1];
-      if (!id) return null;
-      const api = await fetchv2(`https://www.dailymotion.com/player/metadata/video/${id}`);
-      const data = await api.json();
-      const hls = data?.qualities?.auto?.[0]?.url;
-      if (!hls) return null;
-      return streamObj(hls, 'hls', serverName, url);
-
-    } else if (url.includes("ok.ru")) {
-      const match = html.match(/data-options="([^"]+)"/);
-      if (!match) return null;
-      const decoded = decodeURIComponent(match[1]);
-      const parsed = JSON.parse(decoded);
-      const meta = JSON.parse(parsed.flashvars?.metadata || "{}");
-      const hls = meta.hls?.url || meta.hls4?.url;
-      if (!hls) return null;
-      return streamObj(hls, 'hls', serverName, url);
-
-    } else if (url.includes("streamwish")) {
-      const match = html.match(/sources:\s*\[\s*{file:\s*["']([^"']+)["']/);
-      if (!match) return null;
-      return streamObj(match[1], typeFromExt(match[1]), serverName, url);
-
-    } else if (url.includes("upstream.to")) {
-      const match = html.match(/sources:\s*\[\s*{file:\s*["']([^"']+)["']/);
-      if (!match) return null;
-      return streamObj(match[1], typeFromExt(match[1]), serverName, url);
-
-    } else if (url.includes("mp4upload")) {
-      const match = html.match(/player.src\(["']([^"']+)["']\)/);
-      if (!match) return null;
-      return streamObj(match[1], 'mp4', serverName, url);
+    // 5. محاولة استخراج سكريبت eval مشفر
+    const obfuscatedScript = text.match(/<script[^>]*>\s*(eval\(function\(p,a,c,k,e,d.*?\)[\s\S]*?)<\/script>/i);
+    if (obfuscatedScript) {
+        const unpacked = unpack(obfuscatedScript[1]);
+        const unpackedUrl = unpacked.match(/(https?:\/\/[^\s"'<>]+?\.(mp4|m3u8)[^\s"'<>]*)/i)?.[1];
+        if (unpackedUrl) return unpackedUrl;
     }
 
-  } catch (err) {
-    console.error(`[${serverName}] Extract error:`, err);
-  }
-
-  return null;
+    return null;
 }
 
-function streamObj(url, type, server, original) {
-  return {
-    streamUrl: url,
-    type,
-    quality: 'auto',
-    original,
-    server
-  };
+class Unbaser {
+    constructor(base) {
+        this.ALPHABET = {
+            62: "0123456789abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ",
+            95: "' !\"#$%&\'()*+,-./0123456789:;<=>?@ABCDEFGHIJKLMNOPQRSTUVWXYZ[\\]^_`abcdefghijklmnopqrstuvwxyz{|}~'",
+        };
+        this.dictionary = {};
+        this.base = base;
+        if (36 < base && base < 62) {
+            this.ALPHABET[base] = this.ALPHABET[base] || this.ALPHABET[62].substr(0, base);
+        }
+        if (2 <= base && base <= 36) {
+            this.unbase = (value) => parseInt(value, base);
+        } else {
+            try {
+                [...this.ALPHABET[base]].forEach((cipher, index) => {
+                    this.dictionary[cipher] = index;
+                });
+            } catch (er) {
+                throw Error("Unsupported base encoding.");
+            }
+            this.unbase = this._dictunbaser;
+        }
+    }
+
+    _dictunbaser(value) {
+        let ret = 0;
+        [...value].reverse().forEach((cipher, index) => {
+            ret += Math.pow(this.base, index) * this.dictionary[cipher];
+        });
+        return ret;
+    }
 }
 
-function typeFromExt(url) {
-  return url.endsWith(".m3u8") ? "hls" : "mp4";
+function unpack(source) {
+    let { payload, symtab, radix, count } = _filterargs(source);
+    if (count !== symtab.length) throw Error("Malformed p.a.c.k.e.r. symtab.");
+    let unbase = new Unbaser(radix);
+    function lookup(match) {
+        const word2 = symtab[unbase.unbase(match)];
+        return word2 || match;
+    }
+    return payload.replace(/\b\w+\b/g, lookup);
+
+    function _filterargs(source) {
+        const juicers = [
+            /}$begin:math:text$'(.*)', *(\\d+|\\[\\]), *(\\d+), *'(.*)'\\.split\\('\\|'$end:math:text$, *(\d+), *(.*)\)\)/,
+            /}$begin:math:text$'(.*)', *(\\d+|\\[\\]), *(\\d+), *'(.*)'\\.split\\('\\|'$end:math:text$/,
+        ];
+        for (const juicer of juicers) {
+            const args = juicer.exec(source);
+            if (args) {
+                return {
+                    payload: args[1],
+                    symtab: args[4].split("|"),
+                    radix: parseInt(args[2]),
+                    count: parseInt(args[3]),
+                };
+            }
+        }
+        throw Error("Could not make sense of p.a.c.k.e.r data.");
+    }
 }
 
 // ✅ دالة fetch مخصصة
