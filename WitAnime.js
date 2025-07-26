@@ -155,13 +155,22 @@ async function extractStreamUrl(url) {
     return multiStreams;
   }
 
-  const options = servers.map(s => ({
-    title: s.name,
-    streamUrl: s.link,
-    headers: {}
-  }));
+  for (const server of servers) {
+    const extracted = await extractSelectedStream(server.name, server.link);
+    for (const stream of extracted) {
+      multiStreams.streams.push(stream);
+    }
+  }
 
-  return { streams: options, subtitles: null };
+  if (!multiStreams.streams.length) {
+    multiStreams.streams.push({
+      title: 'No valid stream extracted',
+      streamUrl: 'https://files.catbox.moe/avolvc.mp4',
+      headers: {}
+    });
+  }
+
+  return multiStreams;
 }
 
 async function extractSelectedStream(serverName, link) {
