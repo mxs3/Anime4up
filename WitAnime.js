@@ -130,23 +130,17 @@ async function extractEpisodes(url) {
 }
 
 async function extractStreamUrl(url) {
-  if (!_0xCheck()) {
-    return fallbackStream();
-  }
+  if (!_0xCheck()) return fallbackStream();
 
   const html = await (await soraFetch(url)).text();
   const multiStreams = { streams: [], subtitles: null };
 
-  const serverRegex = /data-id=["'](\d+)["'][^>]+data-server=["'](\w+)["']/g;
-  let match;
+  const regex = /data-id=["']?(\d+)["']?[^>]*data-server=["']?([^"'>\s]+)["']?/gi;
   const servers = [];
+  let match;
 
-  while ((match = serverRegex.exec(html)) !== null) {
-    const id = match[1];
-    const server = match[2].toLowerCase();
-    if (!['videa', 'yonaplay'].includes(server)) {
-      servers.push({ id, server });
-    }
+  while ((match = regex.exec(html)) !== null) {
+    servers.push({ id: match[1], server: match[2].toLowerCase() });
   }
 
   for (const { id, server } of servers) {
@@ -157,20 +151,18 @@ async function extractStreamUrl(url) {
       });
 
       const json = await res.json();
-      const iframeUrl = json?.src?.startsWith('//') ? `https:${json.src}` : json?.src;
+      let iframeUrl = json?.src?.startsWith('//') ? `https:${json.src}` : json?.src;
 
       if (!iframeUrl) continue;
 
-      const extracted = await handleIframe(iframeUrl, server);
+      const extracted = await extractFromIframe(iframeUrl, server);
       if (extracted) multiStreams.streams.push(extracted);
     } catch (err) {
-      console.error(`[${server}] fetch/embed failed`, err);
+      console.error(`[${id}] ${server} failed:`, err);
     }
   }
 
-  if (!multiStreams.streams.length) {
-    return fallbackStream();
-  }
+  if (!multiStreams.streams.length) return fallbackStream();
 
   return multiStreams;
 }
@@ -188,37 +180,46 @@ function fallbackStream() {
   };
 }
 
-async function handleIframe(iframeUrl, server) {
+async function extractFromIframe(url, server) {
   try {
-    const html = await (await soraFetch(iframeUrl)).text();
+    const res = await soraFetch(url);
+    const html = await res.text();
 
-    // Regexات موحدة لكل السيرفرات القوية
-    const streamMatch = html.match(/file\s*:\s*["']([^"']+\.(mp4|m3u8))["']/) ||
-                        html.match(/sources\s*:\s*\[\s*{file:\s*["']([^"']+)["']/) ||
-                        html.match(/src\s*=\s*["']([^"']+\.m3u8)["']/) ||
-                        html.match(/"hls":\s*{\s*"url":\s*"([^"]+)"/);
+    const regexList = [
+      /file\s*:\s*["'](https?:\/\/[^"']+\.(?:mp4|m3u8))["']/i,
+      /sources\s*:\s*\[\s*{[^}]*file\s*:\s*["'](https?:\/\/[^"']+)["']/i,
+      /src\s*=\s*["'](https?:\/\/[^"']+\.(?:mp4|m3u8))["']/i,
+      /"hls"\s*:\s*{\s*"url"\s*:\s*"([^"]+)"/i,
+      /"url"\s*:\s*"([^"]+\.(?:m3u8|mp4))"/i,
+      /player\.src\s*\(\s*["'](https?:\/\/[^"']+)["']\s*\)/i,
+      /"file"\s*:\s*"([^"]+\.(mp4|m3u8))"/i
+    ];
 
-    if (streamMatch) {
-      const link = streamMatch[1];
-      return {
-        streamUrl: link,
-        type: link.endsWith('.m3u8') ? 'hls' : 'mp4',
-        quality: 'auto',
-        original: iframeUrl,
-        server: server
-      };
+    for (const regex of regexList) {
+      const match = html.match(regex);
+      if (match && match[1]) {
+        const streamUrl = match[1];
+        return {
+          streamUrl,
+          type: streamUrl.includes('.m3u8') ? 'hls' : 'mp4',
+          quality: 'auto',
+          original: url,
+          server
+        };
+      }
     }
 
-    // fallback كـ external لو الرابط iframe ومافيش video مباشر
+    // fallback في حالة السيرفر مش بيدي بيانات مباشرة
     return {
-      streamUrl: iframeUrl,
-      type: "external",
-      quality: "unknown",
-      original: iframeUrl,
-      server: server
+      streamUrl: url,
+      type: 'external',
+      quality: 'unknown',
+      original: url,
+      server
     };
+
   } catch (err) {
-    console.error(`[${server}] iframe parse failed`, err);
+    console.error(`Error parsing iframe: ${url}`, err);
     return null;
   }
 }
