@@ -129,6 +129,7 @@ async function extractEpisodes(url) {
   }
 }
 
+// ========== دالة استخراج السيرفرات من صفحة الحلقة ==========
 async function extractStreamUrl(url) {
   const multiStreams = { streams: [], subtitles: null };
 
@@ -136,52 +137,27 @@ async function extractStreamUrl(url) {
     const res = await fetchv2(url, {
       headers: {
         'User-Agent': 'Mozilla/5.0',
-        'Referer': url
+        Referer: url
       }
     });
+
     const html = await res.text();
 
-    // استخراج كل السيرفرات
-    const serverRegex = /<a[^>]+class="server-link"[^>]*>\s*<span[^>]*>([^<]+)<\/span>\s*<\/a>/gi;
-    const serverNames = [];
-    let match;
+    // استخراج روابط السيرفرات
+    const servers = [...html.matchAll(/<a[^>]+class="server-link"[^>]+data-url="([^"]+)"[^>]*>\s*<span[^>]*>([^<]+)<\/span>/gi)];
 
-    while ((match = serverRegex.exec(html)) !== null) {
-      const name = match[1].trim().toLowerCase();
-      serverNames.push(name);
-    }
-
-    // تحليل السيرفرات المعروفة وتهيئة الرابط المحتمل
-    for (const name of serverNames) {
-      let streamUrl = null;
-      let format = null;
-
-      if (name.includes("ok.ru")) {
-        streamUrl = "https://ok.ru"; format = "MP4";
-      } else if (name.includes("dailymotion")) {
-        streamUrl = "https://www.dailymotion.com"; format = "HLS";
-      } else if (name.includes("videa")) {
-        streamUrl = "https://videa.hu"; format = "MP4";
-      } else if (name.includes("streamwish")) {
-        streamUrl = "https://streamwish.to"; format = "HLS";
-      } else if (name.includes("yonaplay")) {
-        streamUrl = "https://yonaplay.com"; format = "MP4";
-      }
-
-      if (streamUrl) {
-        multiStreams.streams.push({
-          title: name,
-          streamUrl,
-          type: format,
-          headers: { Referer: url }
-        });
+    for (const [_, link, name] of servers) {
+      const serverName = name.trim().toLowerCase();
+      const extracted = await extractSelectedStream(serverName, link);
+      if (extracted.length > 0) {
+        multiStreams.streams.push(...extracted);
       }
     }
 
-    // fallback في حالة عدم وجود أي سيرفرات صالحة
+    // fallback
     if (multiStreams.streams.length === 0) {
       multiStreams.streams.push({
-        title: "Default Fallback",
+        title: "Fallback",
         streamUrl: "https://files.catbox.moe/avolvc.mp4",
         type: "MP4",
         headers: {}
@@ -189,6 +165,7 @@ async function extractStreamUrl(url) {
     }
 
     return multiStreams;
+
   } catch (err) {
     return {
       streams: [{
@@ -202,111 +179,100 @@ async function extractStreamUrl(url) {
   }
 }
 
-function extractVideoSources(html) {
-  const mp4 = [];
-  const hls = [];
-
-  const hlsRegex = /['"]?(https?:\/\/[^'"]+\.m3u8[^'"]*)['"]?/gi;
-  const mp4Regex = /['"]?(https?:\/\/[^'"]+\.mp4[^'"]*)['"]?/gi;
-
-  let match;
-
-  while ((match = hlsRegex.exec(html)) !== null) {
-    hls.push(match[1]);
-  }
-
-  while ((match = mp4Regex.exec(html)) !== null) {
-    mp4.push(match[1]);
-  }
-
-  return { hls, mp4 };
-}
-
+// ========== دالة اختيار نوع السيرفر واستخراج الرابط المناسب ==========
 async function extractSelectedStream(serverName, link) {
   const lower = serverName.toLowerCase();
 
-  if (lower.includes('ok')) {
-    return await (async function extractOkru(url) {
-      const res = await soraFetch(url, { headers: { Referer: url } });
-      const html = await res.text();
-      const m3u8 = html.match(/"(https:\/\/[^"]+\.m3u8[^"]*)"/)?.[1];
-      if (!m3u8) return [];
-      return [{
-        title: 'OK.ru (HLS)',
-        streamUrl: m3u8,
-        headers: { Referer: url }
-      }];
-    })(link);
-  }
-
-  if (lower.includes('dailymotion')) {
-    return await (async function extractDailymotion(url) {
-      const id = url.match(/video\/([^_]+)/)?.[1];
-      if (!id) return [];
-
-      const res = await soraFetch(`https://www.dailymotion.com/player/metadata/video/${id}`);
-      const json = await res.json();
-
-      const streams = [];
-      for (const quality in json.qualities) {
-        const sources = json.qualities[quality];
-        for (const source of sources) {
-          if (source.type === 'application/x-mpegURL' || source.type === 'video/mp4') {
-            streams.push({
-              title: `Dailymotion - ${quality}`,
-              streamUrl: source.url,
-              headers: { Referer: url }
-            });
-          }
-        }
-      }
-      return streams;
-    })(link);
-  }
-
-  if (lower.includes('streamwish')) {
-    return await (async function extractStreamwish(url) {
-      const res = await soraFetch(url, { headers: { Referer: url } });
-      const html = await res.text();
-      const sources = [...html.matchAll(/file\s*:\s*["']([^"']+)["']\s*,\s*label\s*:\s*["']([^"']+)["']/g)];
-      if (!sources.length) return [];
-      return sources.map(src => ({
-        title: `Streamwish - ${src[2]}`,
-        streamUrl: src[1],
-        headers: { Referer: url }
-      }));
-    })(link);
-  }
-
-  if (lower.includes('videa')) {
-    return await (async function extractVidea(url) {
-      const res = await soraFetch(url, { headers: { Referer: url } });
-      const html = await res.text();
-      const file = html.match(/sources:\s*\[\s*{file:\s*"([^"]+\.mp4)"/)?.[1];
-      if (!file) return [];
-      return [{
-        title: 'Videa (MP4)',
-        streamUrl: file,
-        headers: { Referer: url }
-      }];
-    })(link);
-  }
-
-  if (lower.includes('yonaplay')) {
-    return await (async function extractYonaPlay(url) {
-      const res = await soraFetch(url, { headers: { Referer: url } });
-      const html = await res.text();
-      const m3u8 = html.match(/file\s*:\s*['"](https:\/\/[^'"]+\.m3u8[^'"]*)['"]/i)?.[1];
-      if (!m3u8) return [];
-      return [{
-        title: 'YonaPlay (HLS)',
-        streamUrl: m3u8,
-        headers: { Referer: url }
-      }];
-    })(link);
-  }
+  if (lower.includes('ok')) return await extractOkru(link);
+  if (lower.includes('dailymotion')) return await extractDailymotion(link);
+  if (lower.includes('streamwish')) return await extractStreamwish(link);
+  if (lower.includes('videa')) return await extractVidea(link);
+  if (lower.includes('yonaplay')) return await extractYonaPlay(link);
 
   return [];
+}
+
+// ========== سيرفر OK.ru ==========
+async function extractOkru(url) {
+  const res = await soraFetch(url, { headers: { Referer: url } });
+  const html = await res.text();
+  const m3u8 = html.match(/"(https:\/\/[^"]+\.m3u8[^"]*)"/)?.[1];
+  if (!m3u8) return [];
+  return [{
+    title: 'OK.ru (HLS)',
+    streamUrl: m3u8,
+    type: 'HLS',
+    headers: { Referer: url }
+  }];
+}
+
+// ========== سيرفر Dailymotion ==========
+async function extractDailymotion(url) {
+  const id = url.match(/video\/([^_]+)/)?.[1];
+  if (!id) return [];
+
+  const res = await soraFetch(`https://www.dailymotion.com/player/metadata/video/${id}`);
+  const json = await res.json();
+
+  const streams = [];
+  for (const quality in json.qualities) {
+    const sources = json.qualities[quality];
+    for (const source of sources) {
+      if (source.type === 'application/x-mpegURL' || source.type === 'video/mp4') {
+        streams.push({
+          title: `Dailymotion - ${quality}`,
+          streamUrl: source.url,
+          type: source.type.includes('mpegURL') ? 'HLS' : 'MP4',
+          headers: { Referer: url }
+        });
+      }
+    }
+  }
+
+  return streams;
+}
+
+// ========== سيرفر Streamwish ==========
+async function extractStreamwish(url) {
+  const res = await soraFetch(url, { headers: { Referer: url } });
+  const html = await res.text();
+  const sources = [...html.matchAll(/file\s*:\s*["']([^"']+)["']\s*,\s*label\s*:\s*["']([^"']+)["']/g)];
+  if (!sources.length) return [];
+
+  return sources.map(([_, file, label]) => ({
+    title: `Streamwish - ${label}`,
+    streamUrl: file,
+    type: file.includes('.m3u8') ? 'HLS' : 'MP4',
+    headers: { Referer: url }
+  }));
+}
+
+// ========== سيرفر Videa ==========
+async function extractVidea(url) {
+  const res = await soraFetch(url, { headers: { Referer: url } });
+  const html = await res.text();
+  const file = html.match(/sources:\s*\[\s*{file:\s*"([^"]+\.mp4)"/)?.[1];
+  if (!file) return [];
+  return [{
+    title: 'Videa (MP4)',
+    streamUrl: file,
+    type: 'MP4',
+    headers: { Referer: url }
+  }];
+}
+
+// ========== سيرفر YonaPlay ==========
+async function extractYonaPlay(url) {
+  const res = await soraFetch(url, { headers: { Referer: url } });
+  const html = await res.text();
+  const m3u8 = html.match(/file\s*:\s*['"](https:\/\/[^'"]+\.m3u8[^'"]*)['"]/i)?.[1];
+  if (!m3u8) return [];
+  return [{
+    title: 'YonaPlay (HLS)',
+    streamUrl: m3u8,
+    type: 'HLS',
+    headers: { Referer: url }
+  }];
 }
 
 async function soraFetch(url, options = { headers: {}, method: 'GET', body: null }) {
