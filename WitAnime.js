@@ -130,93 +130,89 @@ async function extractEpisodes(url) {
 }
 
 async function extractStreamUrl(url) {
-  if (!_0xCheck()) return 'https://files.catbox.moe/avolvc.mp4';
+  if (!_0xCheck()) {
+    return fallbackStream();
+  }
 
   const html = await (await soraFetch(url)).text();
   const multiStreams = { streams: [], subtitles: null };
 
-  const regex = /<li[^>]+data-id=["'](\d+)["'][^>]+data-server=["']([^"']+)["']/g;
+  // ريجيكس قوي لسحب كل السيرفرات من صفحة الحلقة
+  const serverRegex = /<li[^>]+data-id=["']?(\d+)["']?[^>]*data-server=["']?([^"'>\s]+)["']?[^>]*>/gi;
+  const servers = [];
   let match;
-  const ids = [];
 
-  while ((match = regex.exec(html)) !== null) {
-    ids.push({ id: match[1], server: match[2] });
+  while ((match = serverRegex.exec(html)) !== null) {
+    const id = match[1];
+    const server = match[2].toLowerCase();
+    if (!['videa', 'yonaplay'].includes(server)) {
+      servers.push({ id, server });
+    }
   }
 
-  for (const { id, server } of ids) {
-    if (['videa', 'yonaplay'].includes(server)) continue;
-
+  for (const { id, server } of servers) {
     try {
-      const res = await soraFetch(`https://witanime.world/ajax/embed.php?id=${id}`, {
+      const embedUrl = `https://witanime.world/ajax/embed.php?id=${id}`;
+      const res = await soraFetch(embedUrl, {
         headers: { 'X-Requested-With': 'XMLHttpRequest' }
       });
       const json = await res.json();
-      const iframeUrl = json?.src;
+      const iframeSrc = json?.src;
+      if (!iframeSrc) continue;
 
-      if (!iframeUrl) continue;
-
-      multiStreams.streams.push({
-        streamUrl: iframeUrl,
-        type: "external",
-        quality: "unknown",
-        original: iframeUrl,
-        server
-      });
+      const extracted = await extractFromEmbed(iframeSrc, server);
+      if (extracted) multiStreams.streams.push(extracted);
     } catch (err) {
-      console.error("Server fetch failed:", err);
+      console.error(`[${server}] Error extracting embed:`, err);
     }
   }
 
   if (!multiStreams.streams.length) {
-    multiStreams.streams.push({
+    multiStreams.streams.push(fallbackStream().streams[0]);
+  }
+
+  return multiStreams;
+}
+
+function fallbackStream() {
+  return {
+    streams: [{
       streamUrl: 'https://files.catbox.moe/avolvc.mp4',
       type: 'mp4',
       quality: 'fallback',
       original: 'fallback',
       server: 'fallback'
-    });
-  }
-
-  return multiStreams;
+    }],
+    subtitles: null
+  };
 }
 
-  // محاولة استخراج كل السيرفرات
-  for (const iframeId of serverList) {
-    try {
-      const embedUrl = `https://witanime.world/ajax/embed.php?id=${iframeId}`;
-      const res = await soraFetch(embedUrl, { headers: { 'X-Requested-With': 'XMLHttpRequest' } });
-      const json = await res.json();
-      const iframeSrc = json?.src;
+async function extractFromEmbed(iframeUrl, server) {
+  try {
+    if (iframeUrl.includes('dailymotion.com')) return await extractDailymotion(iframeUrl);
+    if (iframeUrl.includes('ok.ru')) return await extractOkru(iframeUrl);
+    if (iframeUrl.includes('streamwish')) return await extractStreamWish(iframeUrl);
+    if (iframeUrl.includes('mp4upload.com')) return await extractMp4upload(iframeUrl);
+    if (iframeUrl.includes('upstream.to')) return await extractUpstream(iframeUrl);
+    if (iframeUrl.includes('fembed') || iframeUrl.includes('vcdn')) return await extractFembed(iframeUrl);
+    if (iframeUrl.includes('filemoon')) return await extractFilemoon(iframeUrl);
+    if (iframeUrl.includes('streamtape')) return await extractStreamtape(iframeUrl);
 
-      if (!iframeSrc) continue;
-
-      const extracted = await extractFromEmbed(iframeSrc);
-      if (extracted) multiStreams.streams.push(extracted);
-    } catch (err) {
-      console.error('Error loading server:', err);
-    }
+    return {
+      streamUrl: iframeUrl,
+      type: "external",
+      quality: "unknown",
+      original: iframeUrl,
+      server: server || "unknown"
+    };
+  } catch (err) {
+    console.error(`[${server}] extractFromEmbed failed:`, err);
+    return null;
   }
-
-  return multiStreams;
 }
 
-async function extractFromEmbed(iframeUrl) {
-  if (iframeUrl.includes('dailymotion.com')) {
-    return await extractDailymotion(iframeUrl);
-  } else if (iframeUrl.includes('ok.ru')) {
-    return await extractOkru(iframeUrl);
-  } else if (iframeUrl.includes('streamwish')) {
-    return await extractStreamWish(iframeUrl);
-  } else if (iframeUrl.includes('mp4upload.com')) {
-    return await extractMp4upload(iframeUrl);
-  } else if (iframeUrl.includes('upstream.to')) {
-    return await extractUpstream(iframeUrl);
-  }
+// --- دوال الاستخراج لكل سيرفر مدعوم ---
 
-  return null;
-}
-
-// دالة استخراج Dailymotion
 async function extractDailymotion(url) {
   try {
     const videoID = url.match(/video\/([a-zA-Z0-9]+)/)?.[1];
@@ -242,7 +238,6 @@ async function extractDailymotion(url) {
   }
 }
 
-// دالة استخراج ok.ru
 async function extractOkru(url) {
   try {
     const res = await soraFetch(url);
@@ -252,14 +247,14 @@ async function extractOkru(url) {
 
     const decoded = decodeURIComponent(jsonMatch[1]);
     const json = JSON.parse(decoded);
-    const hls = json.flashvars?.metadata;
-    const streamMeta = JSON.parse(hls);
+    const metadata = json.flashvars?.metadata;
+    const streamMeta = JSON.parse(metadata);
 
-    const qualities = streamMeta.hls?.url || streamMeta.hls4?.url;
-    if (!qualities) return null;
+    const hls = streamMeta.hls?.url || streamMeta.hls4?.url;
+    if (!hls) return null;
 
     return {
-      streamUrl: qualities,
+      streamUrl: hls,
       type: "hls",
       quality: "auto",
       original: url,
@@ -271,19 +266,17 @@ async function extractOkru(url) {
   }
 }
 
-// دالة استخراج streamwish
 async function extractStreamWish(url) {
   try {
     const res = await soraFetch(url);
     const html = await res.text();
-    const sourceMatch = html.match(/sources:\s*\[\s*{\s*file:\s*["'](.*?)["']/);
+    const match = html.match(/sources:\s*\[\s*{\s*file:\s*["'](.*?)["']/);
+    if (!match) return null;
 
-    if (!sourceMatch) return null;
-    const streamUrl = sourceMatch[1];
-
+    const file = match[1];
     return {
-      streamUrl,
-      type: streamUrl.endsWith('.m3u8') ? 'hls' : 'mp4',
+      streamUrl: file,
+      type: file.endsWith('.m3u8') ? 'hls' : 'mp4',
       quality: "auto",
       original: url,
       server: "streamwish"
@@ -294,21 +287,19 @@ async function extractStreamWish(url) {
   }
 }
 
-// دالة استخراج mp4upload
 async function extractMp4upload(url) {
   try {
     const id = url.match(/\/embed-([a-zA-Z0-9]+)\.html/)?.[1];
     if (!id) return null;
 
-    const apiUrl = `https://www.mp4upload.com/embed-${id}.html`;
-    const res = await soraFetch(apiUrl);
+    const res = await soraFetch(`https://www.mp4upload.com/embed-${id}.html`);
     const html = await res.text();
 
-    const fileMatch = html.match(/player.src\(["'](.*?)["']\)/);
-    if (!fileMatch) return null;
+    const match = html.match(/player\.src\(["']([^"']+)["']\)/);
+    if (!match) return null;
 
     return {
-      streamUrl: fileMatch[1],
+      streamUrl: match[1],
       type: "mp4",
       quality: "auto",
       original: url,
@@ -320,25 +311,88 @@ async function extractMp4upload(url) {
   }
 }
 
-// دالة استخراج upstream
 async function extractUpstream(url) {
   try {
     const res = await soraFetch(url);
     const html = await res.text();
-    const fileMatch = html.match(/sources:\s*\[\s*{file:\s*["']([^"']+)["']/);
+    const match = html.match(/sources:\s*\[\s*{file:\s*["']([^"']+)["']/);
+    if (!match) return null;
 
-    if (!fileMatch) return null;
-    const streamUrl = fileMatch[1];
-
+    const file = match[1];
     return {
-      streamUrl,
-      type: streamUrl.endsWith('.m3u8') ? 'hls' : 'mp4',
+      streamUrl: file,
+      type: file.endsWith('.m3u8') ? 'hls' : 'mp4',
       quality: "auto",
       original: url,
       server: "upstream"
     };
   } catch (err) {
     console.error("Upstream extract error:", err);
+    return null;
+  }
+}
+
+async function extractFembed(url) {
+  try {
+    const res = await soraFetch(url);
+    const html = await res.text();
+    const match = html.match(/sources\s*:\s*(\[[^\]]+\])/);
+    if (!match) return null;
+
+    const sources = JSON.parse(match[1]);
+    const file = sources.find(src => src.file?.includes('m3u8') || src.file?.includes('.mp4'));
+    if (!file) return null;
+
+    return {
+      streamUrl: file.file,
+      type: file.file.endsWith('.m3u8') ? 'hls' : 'mp4',
+      quality: "auto",
+      original: url,
+      server: "fembed"
+    };
+  } catch (err) {
+    console.error("Fembed extract error:", err);
+    return null;
+  }
+}
+
+async function extractFilemoon(url) {
+  try {
+    const res = await soraFetch(url);
+    const html = await res.text();
+    const match = html.match(/file:\s*["']([^"']+)["']/);
+    if (!match) return null;
+
+    const file = match[1];
+    return {
+      streamUrl: file,
+      type: file.endsWith('.m3u8') ? 'hls' : 'mp4',
+      quality: "auto",
+      original: url,
+      server: "filemoon"
+    };
+  } catch (err) {
+    console.error("Filemoon extract error:", err);
+    return null;
+  }
+}
+
+async function extractStreamtape(url) {
+  try {
+    const res = await soraFetch(url);
+    const html = await res.text();
+    const match = html.match(/'robotlink'\s*,\s*'([^']+)'/);
+    if (!match) return null;
+
+    return {
+      streamUrl: `https:${match[1]}`,
+      type: "mp4",
+      quality: "auto",
+      original: url,
+      server: "streamtape"
+    };
+  } catch (err) {
+    console.error("Streamtape extract error:", err);
     return null;
   }
 }
