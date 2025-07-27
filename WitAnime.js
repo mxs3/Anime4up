@@ -132,114 +132,31 @@ async function extractEpisodes(url) {
 async function extractStreamUrl(html) {
     if (!_0xCheck()) return 'https://files.catbox.moe/avolvc.mp4';
 
-    const serverRegex = /<a[^>]+class="server-link"[^>]+data-server-id="(\d+)"[^>]*>\s*<span[^>]*>([^<]+)<\/span>/g;
-    const serverMatches = [...html.matchAll(serverRegex)];
-
-    const allowedServers = ["streamwish", "streamwish - sd", "videa", "dailymotion - fhd"];
-    let iframeUrls = [];
-
-    for (const match of serverMatches) {
-        const id = match[1];
-        const title = match[2].trim().toLowerCase();
-        if (!allowedServers.includes(title)) continue;
-
-        const iframeRegex = new RegExp(`<iframe[^>]+data-server="${id}"[^>]+src="([^"]+)"`);
-        const iframeMatch = html.match(iframeRegex);
-        if (iframeMatch) {
-            const iframeUrl = iframeMatch[1].startsWith("http") ? iframeMatch[1] : "https:" + iframeMatch[1];
-            iframeUrls.push({ url: iframeUrl, title });
-        }
-    }
-
+    const allowed = ["streamwish", "streamwish - sd", "videa", "dailymotion - fhd"];
+    const regex = /<a[^>]+class="server-link"[^>]+data-server-id="(\d+)"[^>]*>\s*<span[^>]*>([^<]+)<\/span>/gi;
+    const matches = [...html.matchAll(regex)];
     const streams = [];
 
-    for (const { url, title } of iframeUrls) {
-        if (title.includes("streamwish")) {
-            const response = await soraFetch(url);
-            const body = await response.text();
-            const scriptMatch = body.match(/<script[^>]*>\s*(eval\(function\(p,a,c,k,e,d[\s\S]*?)<\/script>/);
-            if (!scriptMatch) continue;
-            const unpacked = unpack(scriptMatch[1]);
+    for (const match of matches) {
+        const id = match[1];
+        const name = match[2].trim().toLowerCase();
+        if (!allowed.includes(name)) continue;
 
-            // HLS
-            const hlsMatch = unpacked.match(/https:\/\/[^"']+\.m3u8/);
-            if (hlsMatch) {
-                streams.push({
-                    title: title + " (HLS)",
-                    streamUrl: hlsMatch[0],
-                    headers: {
-                        "Referer": "https://streamwish.to/",
-                        "User-Agent": defaultUA
-                    }
-                });
-            }
+        const iframeRegex = new RegExp(`<iframe[^>]+data-server="${id}"[^>]+src="([^"]+)"`, "i");
+        const iframeMatch = html.match(iframeRegex);
+        if (!iframeMatch) continue;
 
-            // MP4
-            const mp4Matches = [...unpacked.matchAll(/file\s*:\s*["']([^"']+\.mp4[^"']*)["']\s*,\s*label\s*:\s*["']([^"']+)["']/g)];
-            for (const [_, url, label] of mp4Matches) {
-                streams.push({
-                    title: `${title} - ${label}`,
-                    streamUrl: url,
-                    headers: {
-                        "Referer": "https://streamwish.to/",
-                        "User-Agent": defaultUA
-                    }
-                });
-            }
-        }
+        const url = iframeMatch[1].startsWith("http") ? iframeMatch[1] : "https:" + iframeMatch[1];
 
-        else if (title === "videa") {
-            const response = await soraFetch(url);
-            const body = await response.text();
+        let extracted = [];
+        if (name.includes("streamwish")) extracted = await extractStreamwish(url);
+        else if (name === "videa") extracted = await extractVidea(url);
+        else if (name === "dailymotion - fhd") extracted = await extractDailymotion(url);
 
-            let iframeUrl = body.match(/<iframe[^>]+src="([^"]+videa[^"]+)"/i)?.[1];
-            if (!iframeUrl) iframeUrl = url;
-            if (!iframeUrl.startsWith("http")) iframeUrl = "https:" + iframeUrl;
-
-            const res2 = await soraFetch(iframeUrl);
-            const html2 = await res2.text();
-            const fileMatch = html2.match(/sources:\s*\[\s*\{file:\s*"([^"]+)"/);
-            if (fileMatch) {
-                streams.push({
-                    title: "Videa (MP4)",
-                    streamUrl: fileMatch[1],
-                    headers: {
-                        "Referer": iframeUrl,
-                        "User-Agent": defaultUA
-                    }
-                });
-            }
-        }
-
-        else if (title === "dailymotion - fhd") {
-            const videoId = url.match(/video\/([^?#]+)/)?.[1];
-            if (!videoId) continue;
-
-            const playerUrl = `https://geo.dailymotion.com/player/xtv3w.html?video=${videoId}`;
-            const response = await soraFetch(playerUrl, {
-                headers: {
-                    "User-Agent": iphoneUA,
-                    "Referer": "https://www.dailymotion.com/"
-                }
-            });
-
-            const html2 = await response.text();
-            const hlsMatch = html2.match(/"url":"([^"]+\.m3u8[^"]*)"/);
-            if (hlsMatch) {
-                const streamUrl = hlsMatch[1].replace(/\\u0026/g, '&').replace(/\\/g, '');
-                streams.push({
-                    title: "Dailymotion - FHD",
-                    streamUrl,
-                    headers: {
-                        "User-Agent": iphoneUA,
-                        "Referer": "https://geo.dailymotion.com/"
-                    }
-                });
-            }
-        }
+        if (extracted.length) streams.push(...extracted);
     }
 
-    if (streams.length === 0) {
+    if (!streams.length) {
         streams.push({
             title: "Fallback",
             streamUrl: "https://files.catbox.moe/avolvc.mp4",
@@ -247,10 +164,100 @@ async function extractStreamUrl(html) {
         });
     }
 
-    return JSON.stringify({
+    return {
         streams,
         subtitles: ""
+    };
+}
+
+async function extractStreamwish(url) {
+    const res = await soraFetch(url);
+    const html = await res.text();
+
+    const evalMatch = html.match(/<script[^>]*>\s*(eval\(function\(p,a,c,k,e,d[\s\S]*?)<\/script>/);
+    if (!evalMatch) return [];
+
+    const unpacked = unpack(evalMatch[1]);
+
+    const result = [];
+
+    // HLS
+    const hlsMatch = unpacked.match(/https:\/\/[^"']+\.m3u8/);
+    if (hlsMatch) {
+        result.push({
+            title: "Streamwish (HLS)",
+            streamUrl: hlsMatch[0],
+            headers: {
+                "Referer": "https://streamwish.to/",
+                "User-Agent": defaultUA
+            }
+        });
+    }
+
+    // MP4
+    const mp4s = [...unpacked.matchAll(/file\s*:\s*["']([^"']+\.mp4[^"']*)["']\s*,\s*label\s*:\s*["']([^"']+)["']/g)];
+    for (const [_, url, label] of mp4s) {
+        result.push({
+            title: `Streamwish - ${label}`,
+            streamUrl: url,
+            headers: {
+                "Referer": "https://streamwish.to/",
+                "User-Agent": defaultUA
+            }
+        });
+    }
+
+    return result;
+}
+
+async function extractVidea(url) {
+    const res = await soraFetch(url);
+    const html = await res.text();
+
+    let iframeUrl = html.match(/<iframe[^>]+src="([^"]+videa[^"]+)"/i)?.[1];
+    if (!iframeUrl) iframeUrl = url;
+    if (!iframeUrl.startsWith("http")) iframeUrl = "https:" + iframeUrl;
+
+    const res2 = await soraFetch(iframeUrl);
+    const html2 = await res2.text();
+    const fileMatch = html2.match(/sources:\s*\[\s*\{file:\s*"([^"]+\.mp4)"/);
+
+    if (!fileMatch) return [];
+    return [{
+        title: "Videa (MP4)",
+        streamUrl: fileMatch[1],
+        headers: {
+            "Referer": iframeUrl,
+            "User-Agent": defaultUA
+        }
+    }];
+}
+
+async function extractDailymotion(url) {
+    const videoId = url.match(/video\/([^?#]+)/)?.[1];
+    if (!videoId) return [];
+
+    const playerUrl = `https://geo.dailymotion.com/player/xtv3w.html?video=${videoId}`;
+    const res = await soraFetch(playerUrl, {
+        headers: {
+            "User-Agent": iphoneUA,
+            "Referer": "https://www.dailymotion.com/"
+        }
     });
+
+    const html = await res.text();
+    const hlsMatch = html.match(/"url":"([^"]+\.m3u8[^"]*)"/);
+    if (!hlsMatch) return [];
+
+    const cleanUrl = hlsMatch[1].replace(/\\u0026/g, '&').replace(/\\/g, '');
+    return [{
+        title: "Dailymotion - FHD",
+        streamUrl: cleanUrl,
+        headers: {
+            "User-Agent": iphoneUA,
+            "Referer": "https://geo.dailymotion.com/"
+        }
+    }];
 }
 
 const defaultUA = "Mozilla/5.0 (Windows NT 10.0; Win64; x64)";
