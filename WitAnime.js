@@ -131,10 +131,9 @@ async function extractEpisodes(url) {
 
 async function extractStreamUrl(url) {
     const multiStreams = { streams: [], subtitles: null };
+    const servers = ["streamwish", "streamwish - sd", "videa", "dailymotion - fhd"];
 
     try {
-        console.log("Page URL received: " + url);
-
         const res = await soraFetch(url, {
             method: 'GET',
             headers: {
@@ -145,57 +144,81 @@ async function extractStreamUrl(url) {
 
         const html = await res.text();
 
-        const servers = ['streamwish', 'streamwish - sd', 'videa', 'dailymotion - fhd'];
+        const regex = new RegExp(
+            `<a[^>]+class=['"][^'"]*option[^'"]*['"][^>]+data-type=['"]([^'"]+)['"][^>]+data-post=['"]([^'"]+)['"][^>]+data-nume=['"]([^'"]+)['"][^>]*>(?:(?!<span[^>]*class=['"]server['"]>).)*<span[^>]*class=['"]server['"]>\\s*(${servers.join("|")})\\s*<\\/span>`,
+            "gi"
+        );
 
-        const extractors = {
-            'streamwish': streamwishExtractor,
-            'streamwish - sd': streamwishExtractor,
-            'videa': videaExtractor,
-            'dailymotion - fhd': dailymotionExtractor
-        };
+        const matches = [...html.matchAll(regex)];
 
-        const serverRegex = /<a[^>]+class="server-link"[^>]+data-server-id="(\d+)"[^>]*>\s*<span[^>]*>([^<]+)<\/span>/gi;
-        const matches = [...html.matchAll(serverRegex)];
+        const streamTasks = matches.map(async (match) => {
+            const [_, type, post, nume, server] = match;
+            const body = `action=player_ajax&post=${post}&nume=${nume}&type=${type}`;
 
-        const serverPromises = matches.map(async ([_, id, name]) => {
-            const serverName = name.trim().toLowerCase();
-            if (!servers.includes(serverName)) return null;
-
-            const iframeRegex = new RegExp(`<iframe[^>]+data-server="${id}"[^>]+src="([^"]+)"`, 'i');
-            const iframeMatch = html.match(iframeRegex);
-            if (!iframeMatch) return null;
-
-            const iframeUrl = iframeMatch[1].startsWith('http') ? iframeMatch[1] : 'https:' + iframeMatch[1];
+            const headers = {
+                'User-Agent': defaultUA,
+                'Origin': DECODE_SI(),
+                'X-Requested-With': 'XMLHttpRequest',
+                'Content-Type': 'application/x-www-form-urlencoded; charset=UTF-8',
+                'path': '/wp-admin/admin-ajax.php',
+                'accept-encoding': 'gzip, deflate, br, zstd',
+                'Accept-Language': 'en-US,en;q=0.7',
+                'Referer': url,
+            };
 
             try {
-                const result = await extractors[serverName](iframeUrl);
-                return Array.isArray(result) ? result : [result];
-            } catch (e) {
-                console.log(`[${serverName}] extractor failed: ${e.message}`);
-                return null;
+                const ajaxRes = await soraFetch(`${DECODE_SI()}/wp-admin/admin-ajax.php`, {
+                    method: 'POST',
+                    headers,
+                    body
+                });
+
+                const json = await ajaxRes.json();
+                if (!json?.embed_url) return [];
+
+                const embedUrl = json.embed_url.replace(/\\\//g, '/');
+                console.log(`[${server}] Embed URL: ${embedUrl}`);
+
+                const extractors = {
+                    "streamwish": streamwishExtractor,
+                    "streamwish - sd": streamwishExtractor,
+                    "videa": videaExtractor,
+                    "dailymotion - fhd": dailymotionExtractor
+                };
+
+                const extractor = extractors[server.toLowerCase()];
+                if (!extractor) return [];
+
+                const streamData = await extractor(embedUrl);
+                return Array.isArray(streamData) ? streamData : [];
+            } catch (err) {
+                console.log(`[${server}] Error: ${err.message}`);
+                return [];
             }
         });
 
-        const allResults = (await Promise.all(serverPromises)).flat().filter(Boolean);
+        const results = await Promise.all(streamTasks);
+        multiStreams.streams = results.flat();
 
-        if (allResults.length === 0) {
-            console.log("⚠️ No valid streams found, using fallback");
-            multiStreams.streams.push({
-                title: "Fallback",
-                streamUrl: "https://files.catbox.moe/avolvc.mp4",
-                headers: {}
+        if (multiStreams.streams.length === 0) {
+            console.log("❌ No working stream found, fallback returned");
+            return JSON.stringify({
+                streams: [{
+                    title: "Fallback",
+                    streamUrl: "https://files.catbox.moe/avolvc.mp4",
+                    headers: {}
+                }],
+                subtitles: null
             });
-        } else {
-            multiStreams.streams = allResults;
         }
 
         return JSON.stringify({
-            streams: Array.isArray(multiStreams.streams) ? multiStreams.streams : [],
-            subtitles: multiStreams.subtitles ?? null
+            streams: multiStreams.streams,
+            subtitles: multiStreams.subtitles
         });
 
-    } catch (error) {
-        console.log("❌ Error in extractStreamUrl: " + error.message);
+    } catch (err) {
+        console.log("❌ extractStreamUrl failed:", err.message);
         return JSON.stringify({
             streams: [{
                 title: "Fallback",
