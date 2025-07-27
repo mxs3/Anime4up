@@ -135,7 +135,7 @@ async function extractStreamUrl(html) {
     const serverRegex = /<a[^>]+class="server-link"[^>]+data-server-id="(\d+)"[^>]*>\s*<span[^>]*>([^<]+)<\/span>/g;
     const serverMatches = [...html.matchAll(serverRegex)];
 
-    const allowedServers = ["streamwish", "streamwish - SD", "videa", "dailymotion - FHD"];
+    const allowedServers = ["streamwish", "streamwish - sd", "videa", "dailymotion - fhd"];
     let iframeUrls = [];
 
     for (const match of serverMatches) {
@@ -146,7 +146,8 @@ async function extractStreamUrl(html) {
         const iframeRegex = new RegExp(`<iframe[^>]+data-server="${id}"[^>]+src="([^"]+)"`);
         const iframeMatch = html.match(iframeRegex);
         if (iframeMatch) {
-            iframeUrls.push({ url: iframeMatch[1], title });
+            const iframeUrl = iframeMatch[1].startsWith("http") ? iframeMatch[1] : "https:" + iframeMatch[1];
+            iframeUrls.push({ url: iframeUrl, title });
         }
     }
 
@@ -160,11 +161,25 @@ async function extractStreamUrl(html) {
             if (!scriptMatch) continue;
             const unpacked = unpack(scriptMatch[1]);
 
+            // HLS
             const hlsMatch = unpacked.match(/https:\/\/[^"']+\.m3u8/);
             if (hlsMatch) {
                 streams.push({
-                    title: title,
+                    title: title + " (HLS)",
                     streamUrl: hlsMatch[0],
+                    headers: {
+                        "Referer": "https://streamwish.to/",
+                        "User-Agent": defaultUA
+                    }
+                });
+            }
+
+            // MP4
+            const mp4Matches = [...unpacked.matchAll(/file\s*:\s*["']([^"']+\.mp4[^"']*)["']\s*,\s*label\s*:\s*["']([^"']+)["']/g)];
+            for (const [_, url, label] of mp4Matches) {
+                streams.push({
+                    title: `${title} - ${label}`,
+                    streamUrl: url,
                     headers: {
                         "Referer": "https://streamwish.to/",
                         "User-Agent": defaultUA
@@ -176,16 +191,17 @@ async function extractStreamUrl(html) {
         else if (title === "videa") {
             const response = await soraFetch(url);
             const body = await response.text();
-            const iframeMatch = body.match(/<iframe[^>]+src="([^"]+videa[^"]+)"/i);
-            if (!iframeMatch) continue;
 
-            const iframeUrl = iframeMatch[1].startsWith('http') ? iframeMatch[1] : 'https:' + iframeMatch[1];
+            let iframeUrl = body.match(/<iframe[^>]+src="([^"]+videa[^"]+)"/i)?.[1];
+            if (!iframeUrl) iframeUrl = url;
+            if (!iframeUrl.startsWith("http")) iframeUrl = "https:" + iframeUrl;
+
             const res2 = await soraFetch(iframeUrl);
             const html2 = await res2.text();
             const fileMatch = html2.match(/sources:\s*\[\s*\{file:\s*"([^"]+)"/);
             if (fileMatch) {
                 streams.push({
-                    title: "Videa",
+                    title: "Videa (MP4)",
                     streamUrl: fileMatch[1],
                     headers: {
                         "Referer": iframeUrl,
@@ -223,13 +239,21 @@ async function extractStreamUrl(html) {
         }
     }
 
+    if (streams.length === 0) {
+        streams.push({
+            title: "Fallback",
+            streamUrl: "https://files.catbox.moe/avolvc.mp4",
+            headers: {}
+        });
+    }
+
     return JSON.stringify({
         streams,
         subtitles: ""
     });
 }
 
-const defaultUA = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/114.0 Safari/537.36";
+const defaultUA = "Mozilla/5.0 (Windows NT 10.0; Win64; x64)";
 const iphoneUA = "Mozilla/5.0 (iPhone; CPU iPhone OS 18_5 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Mobile/15E148";
 
 async function soraFetch(url, options = { headers: {}, method: 'GET', body: null }) {
