@@ -184,19 +184,10 @@ async function extractStreamUrl(url) {
             });
         }
 
-        return JSON.stringify(multiStreams);
-    } catch (error) {
-        console.log("Error in extractStreamUrl:", error.message);
         return JSON.stringify({
-            streams: [{
-                title: "Fallback",
-                streamUrl: "https://files.catbox.moe/avolvc.mp4",
-                headers: {}
-            }],
-            subtitles: null
-        });
-    }
-}
+    streams: Array.isArray(multiStreams.streams) ? multiStreams.streams : [],
+    subtitles: multiStreams.subtitles ?? null
+});
 
 // ========== Streamwish Extractor ==========
 async function streamwishExtractor(embedUrl) {
