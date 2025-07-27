@@ -133,6 +133,8 @@ async function extractStreamUrl(url) {
     const multiStreams = { streams: [], subtitles: null };
 
     try {
+        console.log("Page URL received: " + url);
+
         const res = await soraFetch(url, {
             method: 'GET',
             headers: {
@@ -140,89 +142,97 @@ async function extractStreamUrl(url) {
                 'User-Agent': defaultUA
             }
         });
+
         const html = await res.text();
+
+        const servers = ['streamwish', 'streamwish - sd', 'videa', 'dailymotion - fhd'];
+
+        const extractors = {
+            'streamwish': streamwishExtractor,
+            'streamwish - sd': streamwishExtractor,
+            'videa': videaExtractor,
+            'dailymotion - fhd': dailymotionExtractor
+        };
 
         const serverRegex = /<a[^>]+class="server-link"[^>]+data-server-id="(\d+)"[^>]*>\s*<span[^>]*>([^<]+)<\/span>/gi;
         const matches = [...html.matchAll(serverRegex)];
 
-        const allowedServers = ["streamwish", "streamwish - sd", "videa", "dailymotion - fhd"];
+        const serverPromises = matches.map(async ([_, id, name]) => {
+            const serverName = name.trim().toLowerCase();
+            if (!servers.includes(serverName)) return null;
 
-        const extractors = {
-            "streamwish": streamwishExtractor,
-            "streamwish - sd": streamwishExtractor,
-            "videa": videaExtractor,
-            "dailymotion - fhd": dailymotionExtractor
-        };
-
-        const tasks = matches.map(async ([_, id, serverName]) => {
-            serverName = serverName.trim().toLowerCase();
-            if (!allowedServers.includes(serverName)) return null;
-
-            const iframeRegex = new RegExp(`<iframe[^>]+data-server="${id}"[^>]+src="([^"]+)"`, "i");
+            const iframeRegex = new RegExp(`<iframe[^>]+data-server="${id}"[^>]+src="([^"]+)"`, 'i');
             const iframeMatch = html.match(iframeRegex);
             if (!iframeMatch) return null;
 
-            const iframeUrl = iframeMatch[1].startsWith("http") ? iframeMatch[1] : "https:" + iframeMatch[1];
+            const iframeUrl = iframeMatch[1].startsWith('http') ? iframeMatch[1] : 'https:' + iframeMatch[1];
 
             try {
                 const result = await extractors[serverName](iframeUrl);
-                return result ? result : null;
-            } catch (err) {
-                console.log(`[${serverName}] extractor failed:`, err.message);
+                return Array.isArray(result) ? result : [result];
+            } catch (e) {
+                console.log(`[${serverName}] extractor failed: ${e.message}`);
                 return null;
             }
         });
 
-        const results = await Promise.all(tasks);
-        multiStreams.streams = results.flat().filter(Boolean);
+        const allResults = (await Promise.all(serverPromises)).flat().filter(Boolean);
 
-        if (multiStreams.streams.length === 0) {
+        if (allResults.length === 0) {
+            console.log("⚠️ No valid streams found, using fallback");
             multiStreams.streams.push({
                 title: "Fallback",
                 streamUrl: "https://files.catbox.moe/avolvc.mp4",
                 headers: {}
             });
+        } else {
+            multiStreams.streams = allResults;
         }
 
         return JSON.stringify({
-    streams: Array.isArray(multiStreams.streams) ? multiStreams.streams : [],
-    subtitles: multiStreams.subtitles ?? null
-});
+            streams: Array.isArray(multiStreams.streams) ? multiStreams.streams : [],
+            subtitles: multiStreams.subtitles ?? null
+        });
 
-// ========== Streamwish Extractor ==========
+    } catch (error) {
+        console.log("❌ Error in extractStreamUrl: " + error.message);
+        return JSON.stringify({
+            streams: [{
+                title: "Fallback",
+                streamUrl: "https://files.catbox.moe/avolvc.mp4",
+                headers: {}
+            }],
+            subtitles: null
+        });
+    }
+}
+
+// ✅ Streamwish Extractor
 async function streamwishExtractor(embedUrl) {
-    const headers = { 
+    const headers = {
         "Referer": embedUrl,
         "User-Agent": defaultUA
     };
 
     try {
-        const res = await soraFetch(embedUrl, { headers, method: 'GET' });
+        const res = await soraFetch(embedUrl, { headers });
         const html = await res.text();
 
-        // استخراج كود eval obfuscated
         const evalMatch = html.match(/<script[^>]*>\s*(eval\(function\(p,a,c,k,e,d[\s\S]+?)<\/script>/i);
-        if (!evalMatch) {
-            console.log("⚠️ No eval script found in streamwish page");
-            return [];
-        }
+        if (!evalMatch) return [];
 
-        // فك التشفير
         const unpacked = unpack(evalMatch[1]);
-
         const streams = [];
 
-        // استخراج HLS (m3u8)
-        const m3u8Match = unpacked.match(/file\s*:\s*"([^"]+\.m3u8)"/);
-        if (m3u8Match) {
+        const m3u8 = unpacked.match(/file\s*:\s*"([^"]+\.m3u8)"/);
+        if (m3u8) {
             streams.push({
                 title: "Streamwish - HLS",
-                streamUrl: m3u8Match[1],
+                streamUrl: m3u8[1],
                 headers
             });
         }
 
-        // استخراج MP4 مع الجودة (label)
         const mp4Matches = [...unpacked.matchAll(/file\s*:\s*"([^"]+\.mp4[^"]*)"\s*,\s*label\s*:\s*"([^"]+)"/g)];
         for (const [_, link, label] of mp4Matches) {
             streams.push({
@@ -232,44 +242,45 @@ async function streamwishExtractor(embedUrl) {
             });
         }
 
-        if (streams.length === 0) {
-            console.log("⚠️ No valid streams found inside unpacked Streamwish script");
-        }
-
         return streams;
     } catch (err) {
-        console.log("❌ Streamwish extractor error:", err.message);
+        console.log("Streamwish Extractor Error:", err.message);
         return [];
     }
 }
 
-// ========== Videa Extractor ==========
+// ✅ Videa Extractor
 async function videaExtractor(embedUrl) {
     const headers = {
         "Referer": embedUrl,
         "User-Agent": defaultUA
     };
 
-    const res = await soraFetch(embedUrl, { headers });
-    const html = await res.text();
+    try {
+        const res = await soraFetch(embedUrl, { headers });
+        const html = await res.text();
 
-    let iframe = html.match(/<iframe[^>]+src="([^"]+videa[^"]+)"/i)?.[1] ?? embedUrl;
-    if (!iframe.startsWith("http")) iframe = "https:" + iframe;
+        const iframe = html.match(/<iframe[^>]+src="([^"]+videa[^"]+)"/i)?.[1] ?? embedUrl;
+        const fixedIframe = iframe.startsWith('http') ? iframe : 'https:' + iframe;
 
-    const res2 = await soraFetch(iframe, { headers });
-    const html2 = await res2.text();
+        const res2 = await soraFetch(fixedIframe, { headers });
+        const html2 = await res2.text();
 
-    const match = html2.match(/sources:\s*\[\s*{file:\s*"([^"]+\.mp4)"/);
-    if (!match) return [];
+        const match = html2.match(/sources:\s*\[\s*{file:\s*"([^"]+\.mp4)"/);
+        if (!match) return [];
 
-    return [{
-        title: "Videa (MP4)",
-        streamUrl: match[1],
-        headers
-    }];
+        return [{
+            title: "Videa (MP4)",
+            streamUrl: match[1],
+            headers
+        }];
+    } catch (err) {
+        console.log("Videa Extractor Error:", err.message);
+        return [];
+    }
 }
 
-// ========== Dailymotion Extractor ==========
+// ✅ Dailymotion Extractor
 async function dailymotionExtractor(embedUrl) {
     const videoId = embedUrl.match(/video\/([^?#]+)/)?.[1];
     if (!videoId) return [];
@@ -280,23 +291,27 @@ async function dailymotionExtractor(embedUrl) {
         "Referer": "https://www.dailymotion.com/"
     };
 
-    const res = await soraFetch(playerUrl, { headers });
-    const html = await res.text();
+    try {
+        const res = await soraFetch(playerUrl, { headers });
+        const html = await res.text();
 
-    const hlsMatch = html.match(/"url":"([^"]+\.m3u8[^"]*)"/);
-    if (!hlsMatch) return [];
+        const hlsMatch = html.match(/"url":"([^"]+\.m3u8[^"]*)"/);
+        if (!hlsMatch) return [];
 
-    const cleanUrl = hlsMatch[1].replace(/\\u0026/g, '&').replace(/\\/g, '');
+        const cleanUrl = hlsMatch[1].replace(/\\u0026/g, "&").replace(/\\/g, "");
 
-    return [{
-        title: "Dailymotion - FHD",
-        streamUrl: cleanUrl,
-        headers
-    }];
+        return [{
+            title: "Dailymotion - FHD",
+            streamUrl: cleanUrl,
+            headers
+        }];
+    } catch (err) {
+        console.log("Dailymotion Extractor Error:", err.message);
+        return [];
+    }
 }
 
-// ========== Helpers ==========
-
+// ✅ Helpers
 const defaultUA = "Mozilla/5.0 (Windows NT 10.0; Win64; x64)";
 const iphoneUA = "Mozilla/5.0 (iPhone; CPU iPhone OS 18_5 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Mobile/15E148";
 
@@ -312,8 +327,7 @@ async function soraFetch(url, options = { headers: {}, method: 'GET', body: null
     }
 }
 
-// ========== unpack + Unbaser ==========
-
+// ✅ Unpack + Unbaser
 class Unbaser {
     constructor(base) {
         this.base = base;
@@ -323,7 +337,6 @@ class Unbaser {
             this.dictionary[char] = i;
         });
     }
-
     unbase(str) {
         return [...str].reverse().reduce((acc, char, i) => {
             return acc + (this.dictionary[char] * Math.pow(this.base, i));
@@ -343,14 +356,12 @@ function unpack(source) {
     if (symbols.length !== count) throw new Error("Symbol table mismatch");
 
     const unbaser = new Unbaser(base);
-
     const pattern = /\b\w+\b/g;
-    const unpacked = payload.replace(pattern, word => {
+
+    return payload.replace(pattern, word => {
         const index = unbaser.unbase(word);
         return symbols[index] || word;
     });
-
-    return unpacked;
 }
 
 // ✅ دالة التحقق
