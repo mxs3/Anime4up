@@ -129,7 +129,120 @@ async function extractEpisodes(url) {
   }
 }
 
-دله الروابط
+async function extractStreamUrl(html) {
+    if (!_0xCheck()) return 'https://files.catbox.moe/avolvc.mp4';
+
+    const serverRegex = /<a[^>]+class="server-link"[^>]+data-server-id="(\d+)"[^>]*>\s*<span[^>]*>([^<]+)<\/span>/g;
+    const serverMatches = [...html.matchAll(serverRegex)];
+
+    const allowedServers = ["streamwish", "streamwish - SD", "videa", "dailymotion - FHD"];
+    let iframeUrls = [];
+
+    for (const match of serverMatches) {
+        const id = match[1];
+        const title = match[2].trim().toLowerCase();
+        if (!allowedServers.includes(title)) continue;
+
+        const iframeRegex = new RegExp(`<iframe[^>]+data-server="${id}"[^>]+src="([^"]+)"`);
+        const iframeMatch = html.match(iframeRegex);
+        if (iframeMatch) {
+            iframeUrls.push({ url: iframeMatch[1], title });
+        }
+    }
+
+    const streams = [];
+
+    for (const { url, title } of iframeUrls) {
+        if (title.includes("streamwish")) {
+            const response = await soraFetch(url);
+            const body = await response.text();
+            const scriptMatch = body.match(/<script[^>]*>\s*(eval\(function\(p,a,c,k,e,d[\s\S]*?)<\/script>/);
+            if (!scriptMatch) continue;
+            const unpacked = unpack(scriptMatch[1]);
+
+            const hlsMatch = unpacked.match(/https:\/\/[^"']+\.m3u8/);
+            if (hlsMatch) {
+                streams.push({
+                    title: title,
+                    streamUrl: hlsMatch[0],
+                    headers: {
+                        "Referer": "https://streamwish.to/",
+                        "User-Agent": defaultUA
+                    }
+                });
+            }
+        }
+
+        else if (title === "videa") {
+            const response = await soraFetch(url);
+            const body = await response.text();
+            const iframeMatch = body.match(/<iframe[^>]+src="([^"]+videa[^"]+)"/i);
+            if (!iframeMatch) continue;
+
+            const iframeUrl = iframeMatch[1].startsWith('http') ? iframeMatch[1] : 'https:' + iframeMatch[1];
+            const res2 = await soraFetch(iframeUrl);
+            const html2 = await res2.text();
+            const fileMatch = html2.match(/sources:\s*\[\s*\{file:\s*"([^"]+)"/);
+            if (fileMatch) {
+                streams.push({
+                    title: "Videa",
+                    streamUrl: fileMatch[1],
+                    headers: {
+                        "Referer": iframeUrl,
+                        "User-Agent": defaultUA
+                    }
+                });
+            }
+        }
+
+        else if (title === "dailymotion - fhd") {
+            const videoId = url.match(/video\/([^?#]+)/)?.[1];
+            if (!videoId) continue;
+
+            const playerUrl = `https://geo.dailymotion.com/player/xtv3w.html?video=${videoId}`;
+            const response = await soraFetch(playerUrl, {
+                headers: {
+                    "User-Agent": iphoneUA,
+                    "Referer": "https://www.dailymotion.com/"
+                }
+            });
+
+            const html2 = await response.text();
+            const hlsMatch = html2.match(/"url":"([^"]+\.m3u8[^"]*)"/);
+            if (hlsMatch) {
+                const streamUrl = hlsMatch[1].replace(/\\u0026/g, '&').replace(/\\/g, '');
+                streams.push({
+                    title: "Dailymotion - FHD",
+                    streamUrl,
+                    headers: {
+                        "User-Agent": iphoneUA,
+                        "Referer": "https://geo.dailymotion.com/"
+                    }
+                });
+            }
+        }
+    }
+
+    return JSON.stringify({
+        streams,
+        subtitles: ""
+    });
+}
+
+const defaultUA = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/114.0 Safari/537.36";
+const iphoneUA = "Mozilla/5.0 (iPhone; CPU iPhone OS 18_5 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Mobile/15E148";
+
+async function soraFetch(url, options = { headers: {}, method: 'GET', body: null }) {
+    try {
+        return await fetchv2(url, options.headers ?? {}, options.method ?? 'GET', options.body ?? null);
+    } catch (e) {
+        try {
+            return await fetch(url, options);
+        } catch (err) {
+            return null;
+        }
+    }
+}
 
 // ✅ دالة fetch مخصصة
 async function soraFetch(url, options = { headers: {}, method: 'GET', body: null }) {
