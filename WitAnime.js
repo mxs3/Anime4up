@@ -130,6 +130,12 @@ async function extractEpisodes(url) {
 }
 
 async function extractStreamUrl(url) {
+    const defaultResponse = {
+        status: "error",
+        message: "حدث خطأ غير متوقع",
+        fallbackUrl: 'https://files.catbox.moe/avolvc.mp4'
+    };
+
     try {
         // 1. جلب محتوى الصفحة
         const response = await fetchv2(url, {
@@ -143,34 +149,45 @@ async function extractStreamUrl(url) {
 
         // 2. استخراج معلومات السيرفرات
         const servers = extractServers(html);
-        if (servers.length === 0) throw new Error("لا توجد سيرفرات متاحة");
+        if (servers.length === 0) {
+            return JSON.stringify({
+                ...defaultResponse,
+                message: "لا توجد سيرفرات متاحة"
+            });
+        }
 
         // 3. اختيار أفضل سيرفر
         const selectedServer = selectBestServer(servers);
         
         // 4. استخراج رابط التشغيل
         const streamUrl = extractStreamLink(html, selectedServer.id);
-        if (!streamUrl) throw new Error("لا يوجد رابط تشغيل متاح");
+        if (!streamUrl) {
+            return JSON.stringify({
+                ...defaultResponse,
+                message: "لا يوجد رابط تشغيل متاح"
+            });
+        }
 
         // 5. معالجة الرابط حسب نوعه
         const finalUrl = await processStreamUrl(streamUrl);
 
-        return {
+        return JSON.stringify({
             status: "success",
             server: selectedServer.name,
             url: finalUrl,
             type: getStreamType(finalUrl)
-        };
+        });
 
     } catch (error) {
         console.error('حدث خطأ:', error);
-        return {
-            status: "error",
-            message: error.message,
-            fallbackUrl: 'https://files.catbox.moe/avolvc.mp4'
-        };
+        return JSON.stringify({
+            ...defaultResponse,
+            message: error.message || "حدث خطأ غير متوقع"
+        });
     }
 }
+
+// ... باقي الدوال المساعدة تبقى كما هي ...
 
 // ===== الدوال المساعدة ===== //
 
