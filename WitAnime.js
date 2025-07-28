@@ -129,88 +129,76 @@ async function extractEpisodes(url) {
   }
 }
 
-async function extractStreamUrl(html, { soraFetch, unpack, referer }) {
-  const results = [];
-  const fallback = [{ file: "fallback", type: "mp4", quality: "Fallback", server: "fallback" }];
-  const userAgent = "Mozilla/5.0 (iPhone; CPU iPhone OS 18_5 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Mobile/15E148";
+async function extractStreamUrl({ html, episodeUrl }) {
+  const sources = [];
+  const headers = {
+    'User-Agent': 'Mozilla/5.0 (iPhone; CPU iPhone OS 18_5 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Mobile/15E148',
+    'Referer': episodeUrl,
+  };
 
-  // 1. استخراج رابط iframe بعد الضغط على السيرفر
-  const iframeMatch = html.match(/<iframe[^>]+src=["']([^"']+)["']/i);
-  if (!iframeMatch) return fallback;
-  const iframeUrl = iframeMatch[1].startsWith("http") ? iframeMatch[1] : `https://witanime.world${iframeMatch[1]}`;
+  const iframeRegex = /<iframe[^>]+src=["']([^"']+)["']/gi;
+  const iframeMatches = [...html.matchAll(iframeRegex)];
 
-  // 2. تحميل محتوى iframe
-  const iframeHtml = await soraFetch(iframeUrl, {
-    headers: {
-      referer: referer || "https://witanime.world/",
-      "user-agent": userAgent,
-    },
-  });
+  for (const match of iframeMatches) {
+    let iframeUrl = match[1];
+    if (iframeUrl.startsWith('//')) iframeUrl = 'https:' + iframeUrl;
+    if (!iframeUrl.startsWith('http')) continue;
 
-  // ========== 🟩 kravaxxa / tryzendm ==========
-  if (/kravaxxa\.com|tryzendm\.com/.test(iframeUrl)) {
-    const direct = await extractKravaxxaOrTryzendm(iframeHtml, unpack);
-    if (direct) results.push(direct);
-  }
+    if (/krava|tryzendm/.test(iframeUrl)) {
+      try {
+        const frameHtml = await soraFetch(iframeUrl, { headers });
+        const evalMatch = frameHtml.match(/eval\(function\(p,a,c,k,e,d\)[\s\S]+?\)/);
+        if (!evalMatch) continue;
 
-  // ========== 🟩 streamwish ==========
-  const streamwishUrl = iframeHtml.match(/src=["'](https:\/\/(?:www\.)?streamwish\.[^"']+)["']/i)?.[1];
-  if (streamwishUrl) {
-    const streamwishRes = await soraFetch(streamwishUrl, { headers: { referer, "user-agent": userAgent } });
-    const unpacked = unpack(streamwishRes);
-    const streamwishLink = unpacked.match(/file:\s*["']([^"']+)["']/)?.[1];
-    if (streamwishLink) {
-      results.push({
-        file: streamwishLink,
-        type: streamwishLink.includes(".m3u8") ? "hls" : "mp4",
-        quality: "HD",
-        server: "streamwish",
-      });
+        const unpacked = unpack(evalMatch[0]);
+        const fileMatch = unpacked.match(/file\s*:\s*["'](https?:\/\/[^"']+\.(mp4|m3u8)[^"']*)["']/);
+        if (fileMatch) {
+          sources.push({
+            url: fileMatch[1],
+            isM3U8: fileMatch[1].includes('.m3u8'),
+            quality: 'auto',
+            headers,
+          });
+        }
+      } catch (err) {
+        console.warn('[krava/tryzendm] extraction failed:', err.message);
+      }
     }
   }
 
-  // ========== 🟩 dailymotion ==========
-  const dailymotionEmbed = iframeHtml.match(/src=["'](https:\/\/www\.dailymotion\.com\/embed\/video\/[^"']+)/)?.[1];
-  if (dailymotionEmbed) {
-    results.push({
-      file: dailymotionEmbed,
-      type: "embed",
-      quality: "FHD",
-      server: "dailymotion",
-    });
+  // fallback إذا مفيش روابط
+  if (sources.length === 0) {
+    return [
+      {
+        url: 'fallback',
+        isM3U8: false,
+        quality: 'fallback',
+      },
+    ];
   }
 
-  // ========== 🟩 direct mp4/m3u8 ==========
-  const directLink = iframeHtml.match(/(https?:\/\/[^\s"']+\.(?:mp4|m3u8)[^\s"']*)/i)?.[1];
-  if (directLink) {
-    results.push({
-      file: directLink,
-      type: directLink.includes(".m3u8") ? "hls" : "mp4",
-      quality: "HD",
-      server: "direct",
-    });
-  }
-
-  // ✅ fallback إذا مفيش ولا سيرفر اشتغل
-  return results.length > 0 ? results : fallback;
+  return sources;
 }
+  
+// Unpacker
+    function unbaser(base) {
+      const alphabet = '0123456789abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ'.split('');
+      return function (str) {
+        return str.split('').reverse().reduce((acc, val, i) => {
+          return acc + alphabet.indexOf(val) * Math.pow(base, i);
+        }, 0);
+      };
+    }
 
+    const unbase = unbaser(a);
+    let result = p.replace(/\b\w+\b/g, function (word) {
+      const value = unbase(word);
+      return k[value] || word;
+    });
 
-// 🧠 استخراج روابط kravaxxa / tryzendm
-async function extractKravaxxaOrTryzendm(html, unpack) {
-  try {
-    const unpacked = unpack(html);
-    const file = unpacked.match(/file:\s*["']([^"']+\.(?:m3u8|mp4)[^"']*)["']/i)?.[1];
-    const type = file?.includes(".m3u8") ? "hls" : "mp4";
-    if (!file) return null;
-
-    return {
-      file,
-      type,
-      quality: "HD",
-      server: "tryzendm",
-    };
-  } catch (err) {
+    return result;
+  } catch (e) {
+    console.warn('[unpack error]', e.message);
     return null;
   }
 }
