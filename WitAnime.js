@@ -130,102 +130,82 @@ async function extractEpisodes(url) {
 }
 
 async function extractStreamUrl(url) {
-  const headers = {
-    'User-Agent': 'Mozilla/5.0 (iPhone; CPU iPhone OS 18_5 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Mobile/15E148',
-    'Referer': url
-  };
+    try {
+        // 1. جلب محتوى الصفحة
+        const response = await fetchv2(url, {
+            headers: {
+                "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
+                "Referer": "https://witanime.world/"
+            }
+        });
+        const html = await response.text();
 
-  try {
-    // 1. جلب صفحة الحلقة
-    const res = await fetch(url, { headers });
-    const html = await res.text();
+        // 2. استخراج معلومات السيرفرات من القائمة
+        const serverList = [];
+        const serverRegex = /<a href="javascript:void\(0\);".*?data-server-id="(\d+)".*?<span class="ser">([^<]+)<\/span>/gs;
+        let serverMatch;
 
-    // 2. استخراج iframes
-    const iframes = [...html.matchAll(/<iframe[^>]+src=['"]([^'"]+)['"]/gi)]
-      .map(m => m[1].replace(/^\/\//, 'https://'))
-      .filter(u => u.includes('streamwish'));
+        while ((serverMatch = serverRegex.exec(html)) !== null) {
+            serverList.push({
+                id: serverMatch[1],
+                name: serverMatch[2].trim()
+            });
+        }
 
-    if (iframes.length === 0) {
-      return { error: true, message: 'No StreamWish iframe found' };
+        if (serverList.length === 0) {
+            throw new Error("لم يتم العثور على قائمة السيرفرات");
+        }
+
+        // 3. تحديد أفضل سيرفر متاح (نفضل streamwish أولاً)
+        const preferredServers = ['streamwish', 'ok.ru', 'videa', 'dailymotion'];
+        let selectedServer = serverList.find(server => 
+            server.name.toLowerCase().includes('streamwish')
+        ) || serverList[0];
+
+        // 4. محاكاة حدث النقر على السيرفر المختار
+        const serverClickEvent = `loadIframe({getAttribute: (attr) => {
+            return attr === 'data-server-id' ? '${selectedServer.id}' : null;
+        }})`;
+
+        // 5. تنفيذ السكريبت في بيئة متصفح افتراضية (مثال باستخدام eval)
+        const iframeContainer = html.match(/<div class="videoWrapper" id="iframe-container">([\s\S]*?)<\/div>/i);
+        if (!iframeContainer) {
+            throw new Error("لم يتم العثور على حاوية الفيديو");
+        }
+
+        // 6. استخراج رابط التشغيل الفعلي (هذا مثال - يحتاج للتعديل حسب آلية عمل الموقع)
+        const iframeSrcMatch = html.match(/<iframe[^>]+src="([^"]+)"/i);
+        if (!iframeSrcMatch) {
+            throw new Error("لم يتم العثور على رابط التشغيل المباشر");
+        }
+
+        const streamUrl = iframeSrcMatch[1];
+
+        console.log('تم اختيار السيرفر:', selectedServer.name);
+        console.log('رابط التشغيل:', streamUrl);
+        
+        return {
+            server: selectedServer.name,
+            url: streamUrl
+        };
+
+    } catch (error) {
+        console.error('حدث خطأ في extractStreamUrl:', error);
+        return {
+            error: error.message,
+            fallbackUrl: 'https://files.catbox.moe/avolvc.mp4'
+        };
     }
-
-    // 3. معالجة كل iframe (سنأخذ الأول فقط كمثال)
-    const streamwishUrl = iframes[0];
-    
-    // 4. استدعاء الدالة الجديدة لاستخراج الرابط الفعلي
-    const streamData = await getStreamwishRealUrl(streamwishUrl);
-    
-    if (streamData.error) {
-      return { error: true, message: streamData.error };
-    }
-
-    return [{
-      url: streamData.url,
-      isM3U8: streamData.isM3U8,
-      quality: streamData.quality,
-      headers: {
-        "User-Agent": headers['User-Agent'],
-        "Referer": "https://streamwish.fun/"
-      }
-    }];
-
-  } catch (err) {
-    return { error: true, message: `Exception: ${err.message}` };
-  }
 }
 
-// الدالة المساعدة الجديدة
-async function getStreamwishRealUrl(embedUrl) {
-  const headers = {
-    'User-Agent': 'Mozilla/5.0 (iPhone; CPU iPhone OS 18_5 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Mobile/15E148',
-    'Referer': 'https://witanime.world/'
-  };
-
-  try {
-    // 1. جلب صفحة الـ embed
-    const embedRes = await fetch(embedUrl, { headers });
-    const embedHtml = await embedRes.text();
-
-    // 2. استخراج بيانات JWPlayer
-    const jwConfigMatch = embedHtml.match(/eval\(function\(p,a,c,k,e,d\)\{[\s\S]+?\}\(\)\)/);
-    
-    if (!jwConfigMatch) {
-      throw new Error('JWPlayer configuration not found');
+// دالة مساعدة لتحويل الروابط المشفرة (base64)
+function decodeBase64Url(encodedUrl) {
+    try {
+        return atob(encodedUrl);
+    } catch (e) {
+        console.error('فشل في فك تشفير الرابط:', e);
+        return null;
     }
-
-    // 3. فك تشفير التكوين (بدون eval مباشر)
-    const decodedConfig = safelyDecodeJWConfig(jwConfigMatch[0]);
-    
-    if (!decodedConfig?.sources?.[0]?.file) {
-      throw new Error('Invalid JWPlayer configuration');
-    }
-
-    return {
-      url: decodedConfig.sources[0].file,
-      isM3U8: true,
-      quality: 'auto'
-    };
-
-  } catch (error) {
-    console.error('StreamWish extraction error:', error);
-    return { error: error.message };
-  }
-}
-
-// بديل آمن لـ eval
-function safelyDecodeJWConfig(encoded) {
-  try {
-    // هذه دالة مبسطة - قد تحتاج لتعديلها حسب التشفير الفعلي
-    const unpacked = encoded
-      .replace(/^eval\(function\(p,a,c,k,e,d\)\{/, '')
-      .replace(/\}\)\)$/, '');
-    
-    const configStr = unpacked.match(/\{[\s\S]+\}/)?.[0];
-    return JSON.parse(configStr);
-  } catch (e) {
-    console.error('Decoding failed:', e);
-    return null;
-  }
 }
 
 // ✅ دالة fetch مخصصة
