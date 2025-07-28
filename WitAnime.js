@@ -131,96 +131,186 @@ async function extractEpisodes(url) {
 
 async function extractStreamUrl(url) {
     try {
-        // 1. جلب المحتوى باستخدام fetchv2
+        // 1. جلب محتوى الصفحة
         const response = await fetchv2(url, {
             headers: {
                 "User-Agent": "Mozilla/5.0 (iPhone; CPU iPhone OS 18_5 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.5 Mobile/15E148 Safari/604.1",
                 "Referer": "https://witanime.world/"
-            },
-            timeout: 10000
+            }
         });
-        
-        if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`);
         
         const html = await response.text();
 
-        // 2. استخراج معلومات السيرفرات من الكود اللي انتا بعتو
-        const serverList = [];
-        // ريجيكس متكامل يمسك كل حاجة في الديف بتاع السيرفرات
-        const serverRegex = /<a[^>]*?data-server-id="(\d+)"[^>]*?>\s*<span class="ser">\s*(streamwish|okru|vidstream|mp4upload|filemoon|dood|voe|google drive|mega|mediafire)\s*<\/span>/gi;
+        // 2. استخراج معلومات السيرفرات
+        const servers = extractServers(html);
+        if (servers.length === 0) throw new Error("لا توجد سيرفرات متاحة");
+
+        // 3. اختيار أفضل سيرفر
+        const selectedServer = selectBestServer(servers);
         
-        let serverMatch;
-        while ((serverMatch = serverRegex.exec(html)) !== null) {
-            serverList.push({
-                id: serverMatch[1],
-                name: serverMatch[2].trim().toLowerCase()
-            });
-        }
+        // 4. استخراج رابط التشغيل
+        const streamUrl = extractStreamLink(html, selectedServer.id);
+        if (!streamUrl) throw new Error("لا يوجد رابط تشغيل متاح");
 
-        if (serverList.length === 0) {
-            throw new Error("مفيش سيرفرات متاحة دلوقتي");
-        }
+        // 5. معالجة الرابط حسب نوعه
+        const finalUrl = await processStreamUrl(streamUrl);
 
-        // 3. استخراج روابط التشغيل من السكريبت
-        const scriptRegex = /<script[^>]*>[\s\S]*?loadIframe\([^)]*data-server-id="(\d+)"[^)]*\)[^}]*src:\s*["']([^"']+)["'][\s\S]*?<\/script>/gi;
-        const sources = {};
-        
-        let scriptMatch;
-        while ((scriptMatch = scriptRegex.exec(html)) !== null) {
-            sources[scriptMatch[1]] = scriptMatch[2];
-        }
-
-        // 4. اختيار أفضل سيرفر (الأولوية لـ streamwish)
-        const preferredOrder = ['streamwish', 'okru', 'vidstream', 'mp4upload', 'filemoon', 'dood', 'voe'];
-        let selectedServer = null;
-
-        for (const serverName of preferredOrder) {
-            selectedServer = serverList.find(s => s.name.includes(serverName));
-            if (selectedServer && sources[selectedServer.id]) break;
-        }
-
-        if (!selectedServer) {
-            selectedServer = serverList[0];
-        }
-
-        if (!sources[selectedServer.id]) {
-            throw new Error("معرفتش اجيب الرابط من السيرفر المختار");
-        }
-
-        const streamUrl = sources[selectedServer.id];
-
-        // 5. استخراج روابط التحميل لو محتاجها
-        const downloadLinks = {};
-        const downloadRegex = /<a class="btn btn-default download-link"[^>]*data-index="(\d+)"[^>]*>\s*<span class="notice">([^<]+)<\/span>/gi;
-        
-        let downloadMatch;
-        while ((downloadMatch = downloadRegex.exec(html)) !== null) {
-            downloadLinks[downloadMatch[2].trim().toLowerCase()] = downloadMatch[0].match(/href="([^"]+)"/i)?.[1] || '#';
-        }
-
-        // 6. إرجاع النتيجة كاملة
-        return JSON.stringify({
+        return {
             status: "success",
-            selected_server: {
-                id: selectedServer.id,
-                name: selectedServer.name,
-                url: streamUrl
-            },
-            all_servers: serverList,
-            download_links: downloadLinks,
-            episode_info: {
-                previous: html.match(/<a[^>]*rel="prev"[^>]*href="([^"]+)"/i)?.[1],
-                next: html.match(/<a[^>]*rel="next"[^>]*href="([^"]+)"/i)?.[1],
-                anime_page: html.match(/<a href="([^"]*\/anime\/[^"]+)"/i)?.[1]
-            }
-        }, null, 2);
+            server: selectedServer.name,
+            url: finalUrl,
+            type: getStreamType(finalUrl)
+        };
 
     } catch (error) {
-        return JSON.stringify({
+        console.error('حدث خطأ:', error);
+        return {
             status: "error",
             message: error.message,
             fallbackUrl: 'https://files.catbox.moe/avolvc.mp4'
-        }, null, 2);
+        };
+    }
+}
+
+// ===== الدوال المساعدة ===== //
+
+// استخراج السيرفرات من HTML
+function extractServers(html) {
+    const serverRegex = /<a[^>]*data-server-id="(\d+)"[^>]*>.*?<span class="ser">([^<]+)<\/span>/gis;
+    const servers = [];
+    let match;
+    
+    while ((match = serverRegex.exec(html)) !== null) {
+        servers.push({
+            id: match[1],
+            name: match[2].trim().toLowerCase()
+        });
+    }
+    
+    return servers;
+}
+
+// اختيار أفضل سيرفر
+function selectBestServer(servers) {
+    const preferredOrder = ['streamwish', 'okru', 'vidstream', 'mp4upload', 'dood', 'voe'];
+    
+    for (const serverName of preferredOrder) {
+        const found = servers.find(s => s.name.includes(serverName));
+        if (found) return found;
+    }
+    
+    return servers[0];
+}
+
+// استخراج رابط التشغيل
+function extractStreamLink(html, serverId) {
+    const regex = new RegExp(`loadIframe\\([^)]*data-server-id="${serverId}"[^)]*\\)[^}]*src:\\s*["']([^"']+)["']`, 'i');
+    const match = html.match(regex);
+    return match ? match[1] : null;
+}
+
+// تحديد نوع الرابط
+function getStreamType(url) {
+    if (url.includes('.m3u8')) return 'hls';
+    if (url.includes('.mp4')) return 'mp4';
+    if (url.includes('streamwish')) return 'streamwish';
+    if (url.includes('dood')) return 'doodstream';
+    return 'unknown';
+}
+
+// معالجة الروابط المختلفة
+async function processStreamUrl(url) {
+    const type = getStreamType(url);
+    
+    switch (type) {
+        case 'hls':
+            return await handleHlsStream(url);
+        case 'mp4':
+            return await handleMp4Stream(url);
+        case 'streamwish':
+            return await handleStreamwish(url);
+        case 'doodstream':
+            return await handleDoodstream(url);
+        default:
+            return url;
+    }
+}
+
+// معالجة روابط HLS
+async function handleHlsStream(url) {
+    try {
+        // يمكن إضافة تحويلات خاصة بصيغة HLS هنا
+        return url;
+    } catch (e) {
+        console.error('خطأ في معالجة HLS:', e);
+        return url;
+    }
+}
+
+// معالجة روابط MP4
+async function handleMp4Stream(url) {
+    try {
+        // يمكن إضافة تحويلات خاصة بصيغة MP4 هنا
+        return url;
+    } catch (e) {
+        console.error('خطأ في معالجة MP4:', e);
+        return url;
+    }
+}
+
+// معالجة روابط Streamwish
+async function handleStreamwish(url) {
+    try {
+        // إذا كان الرابط مشفرًا أو يحتاج لفك تشفير
+        if (url.includes('encrypt')) {
+            return await decodeStreamwishUrl(url);
+        }
+        return url;
+    } catch (e) {
+        console.error('خطأ في معالجة Streamwish:', e);
+        return url;
+    }
+}
+
+// معالجة روابط Doodstream
+async function handleDoodstream(url) {
+    try {
+        // إذا كان الرابط يحتاج لاستخراج الرابط المباشر
+        if (url.includes('dood.')) {
+            const directUrl = await extractDoodstreamDirectUrl(url);
+            return directUrl || url;
+        }
+        return url;
+    } catch (e) {
+        console.error('خطأ في معالجة Doodstream:', e);
+        return url;
+    }
+}
+
+// دالة فك تشفير Streamwish (مثال)
+async function decodeStreamwishUrl(encodedUrl) {
+    try {
+        // هنا يمكنك تطبيق خوارزمية فك التشفير الخاصة بموقع streamwish
+        // هذه مجرد مثال:
+        const decoded = atob(encodedUrl.split('?token=')[1]);
+        return decoded || encodedUrl;
+    } catch (e) {
+        console.error('خطأ في فك تشفير الرابط:', e);
+        return encodedUrl;
+    }
+}
+
+// استخراج الرابط المباشر من Doodstream (مثال)
+async function extractDoodstreamDirectUrl(url) {
+    try {
+        // هنا يمكنك إضافة كود لاستخراج الرابط المباشر من صفحة doodstream
+        const response = await fetchv2(url);
+        const html = await response.text();
+        const match = html.match(/https?:\/\/[^'"]+\.m3u8/);
+        return match ? match[0] : null;
+    } catch (e) {
+        console.error('خطأ في استخراج رابط Doodstream:', e);
+        return null;
     }
 }
 
@@ -241,15 +331,6 @@ async function soraFetch(url, options = { headers: {}, method: 'GET', body: null
   } catch (err) {
     return { text: async () => '', json: async () => ({}) };
   }
-}
-
-// ✅ دالة التحقق
-function _0xCheck() {
-  var _0x1a = typeof _0xB4F2 === 'function';
-  var _0x2b = typeof _0x7E9A === 'function';
-  return _0x1a && _0x2b ? (function (_0x3c) {
-    return _0x7E9A(_0x3c);
-  })(_0xB4F2()) : !1;
 }
 
 // ✅ فك ترميز HTML
