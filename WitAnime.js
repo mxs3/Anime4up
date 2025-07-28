@@ -129,78 +129,124 @@ async function extractEpisodes(url) {
   }
 }
 
-async function extractStreamUrl({ html, episodeUrl }) {
+async function extractStreamUrl(html) {
   const sources = [];
   const headers = {
     'User-Agent': 'Mozilla/5.0 (iPhone; CPU iPhone OS 18_5 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Mobile/15E148',
-    'Referer': episodeUrl,
   };
 
-  const iframeRegex = /<iframe[^>]+src=["']([^"']+)["']/gi;
-  const iframeMatches = [...html.matchAll(iframeRegex)];
-
+  const iframeMatches = [...html.matchAll(/<iframe[^>]+src=["']([^"']+)["']/gi)];
   for (const match of iframeMatches) {
-    let iframeUrl = match[1];
+    let iframeUrl = match[1].trim();
     if (iframeUrl.startsWith('//')) iframeUrl = 'https:' + iframeUrl;
     if (!iframeUrl.startsWith('http')) continue;
 
-    if (/krava|tryzendm/.test(iframeUrl)) {
-      try {
-        const frameHtml = await soraFetch(iframeUrl, { headers });
-        const evalMatch = frameHtml.match(/eval\(function\(p,a,c,k,e,d\)[\s\S]+?\)/);
-        if (!evalMatch) continue;
+    try {
+      const res = await soraFetch(iframeUrl, { headers });
+      const frameHtml = await res.text();
 
-        const unpacked = unpack(evalMatch[0]);
-        const fileMatch = unpacked.match(/file\s*:\s*["'](https?:\/\/[^"']+\.(mp4|m3u8)[^"']*)["']/);
+      // ✅ streamwish
+      if (/streamwish/.test(iframeUrl)) {
+        const unpacked = unpackEval(frameHtml);
+        const fileMatch = unpacked?.match(/sources\s*:\s*\[\s*\{[^}]*file\s*:\s*["']([^"']+)["']/);
         if (fileMatch) {
           sources.push({
             url: fileMatch[1],
             isM3U8: fileMatch[1].includes('.m3u8'),
             quality: 'auto',
-            headers,
+            headers
           });
+          continue;
         }
-      } catch (err) {
-        console.warn('[krava/tryzendm] extraction failed:', err.message);
       }
+
+      // ✅ krava / tryzendm
+      if (/krava|tryzendm/.test(iframeUrl)) {
+        const unpacked = unpackEval(frameHtml);
+        const fileMatch = unpacked?.match(/file\s*:\s*["'](https?:\/\/[^"']+\.(mp4|m3u8)[^"']*)["']/);
+        if (fileMatch) {
+          sources.push({
+            url: fileMatch[1],
+            isM3U8: fileMatch[1].includes('.m3u8'),
+            quality: 'auto',
+            headers
+          });
+          continue;
+        }
+      }
+
+      // ✅ dailymotion
+      if (/dailymotion/.test(iframeUrl)) {
+        const id = iframeUrl.match(/video\/([^_&#?/]+)/)?.[1];
+        if (id) {
+          const embed = `https://geo.dailymotion.com/player/xtv3w.html?video=${id}`;
+          sources.push({
+            url: embed,
+            isM3U8: true,
+            quality: 'auto',
+            headers
+          });
+          continue;
+        }
+      }
+
+    } catch (err) {
+      console.warn('[iframe error]', iframeUrl, err.message);
     }
   }
 
-  // fallback إذا مفيش روابط
   if (sources.length === 0) {
-    return [
+    return JSON.stringify([
       {
         url: 'fallback',
         isM3U8: false,
-        quality: 'fallback',
-      },
-    ];
+        quality: 'fallback'
+      }
+    ]);
   }
 
-  return sources;
+  return JSON.stringify(sources);
 }
-  
-// Unpacker
-    function unbaser(base) {
-      const alphabet = '0123456789abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ'.split('');
-      return function (str) {
-        return str.split('').reverse().reduce((acc, val, i) => {
-          return acc + alphabet.indexOf(val) * Math.pow(base, i);
-        }, 0);
-      };
-    }
 
+function unpackEval(code) {
+  try {
+    const evalMatch = code.match(/eval\(function\(p,a,c,k,e,d\)[\s\S]+?\)\)/);
+    if (!evalMatch) return null;
+    return unpack(evalMatch[0]);
+  } catch (e) {
+    console.warn('[unpackEval error]', e.message);
+    return null;
+  }
+}
+
+function unpack(packed) {
+  try {
+    const argsMatch = packed.match(/eval\(function\(p,a,c,k,e,d\)\{.*?}\((.*?)\)\)/);
+    if (!argsMatch) return null;
+
+    const args = argsMatch[1].split(',');
+    const p = eval(args[0]);
+    const a = parseInt(args[1]);
+    const k = eval(args[3]);
     const unbase = unbaser(a);
-    let result = p.replace(/\b\w+\b/g, function (word) {
+
+    return p.replace(/\b\w+\b/g, word => {
       const value = unbase(word);
       return k[value] || word;
     });
-
-    return result;
   } catch (e) {
     console.warn('[unpack error]', e.message);
     return null;
   }
+}
+
+function unbaser(base) {
+  const alphabet = '0123456789abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ'.split('');
+  return function (str) {
+    return str.split('').reverse().reduce((acc, val, i) => {
+      return acc + alphabet.indexOf(val) * Math.pow(base, i);
+    }, 0);
+  };
 }
 
 // ✅ دالة fetch مخصصة
