@@ -131,70 +131,96 @@ async function extractEpisodes(url) {
 
 async function extractStreamUrl(url) {
     try {
-        // 1. جلب محتوى الصفحة
+        // 1. جلب المحتوى باستخدام fetchv2
         const response = await fetchv2(url, {
             headers: {
-                "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
+                "User-Agent": "Mozilla/5.0 (iPhone; CPU iPhone OS 18_5 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.5 Mobile/15E148 Safari/604.1",
                 "Referer": "https://witanime.world/"
-            }
+            },
+            timeout: 10000
         });
+        
+        if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`);
+        
         const html = await response.text();
 
-        // 2. استخراج معلومات السيرفرات من القائمة
+        // 2. استخراج معلومات السيرفرات من الكود اللي انتا بعتو
         const serverList = [];
-        const serverRegex = /<a href="javascript:void\(0\);".*?data-server-id="(\d+)".*?<span class="ser">([^<]+)<\/span>/gs;
+        // ريجيكس متكامل يمسك كل حاجة في الديف بتاع السيرفرات
+        const serverRegex = /<a[^>]*?data-server-id="(\d+)"[^>]*?>\s*<span class="ser">\s*(streamwish|okru|vidstream|mp4upload|filemoon|dood|voe|google drive|mega|mediafire)\s*<\/span>/gi;
+        
         let serverMatch;
-
         while ((serverMatch = serverRegex.exec(html)) !== null) {
             serverList.push({
                 id: serverMatch[1],
-                name: serverMatch[2].trim()
+                name: serverMatch[2].trim().toLowerCase()
             });
         }
 
         if (serverList.length === 0) {
-            throw new Error("لم يتم العثور على قائمة السيرفرات");
+            throw new Error("مفيش سيرفرات متاحة دلوقتي");
         }
 
-        // 3. تحديد أفضل سيرفر متاح (نفضل streamwish أولاً)
-        const preferredServers = ['streamwish', 'ok.ru', 'videa', 'dailymotion'];
-        let selectedServer = serverList.find(server => 
-            server.name.toLowerCase().includes('streamwish')
-        ) || serverList[0];
-
-        // 4. محاكاة حدث النقر على السيرفر المختار
-        const serverClickEvent = `loadIframe({getAttribute: (attr) => {
-            return attr === 'data-server-id' ? '${selectedServer.id}' : null;
-        }})`;
-
-        // 5. تنفيذ السكريبت في بيئة متصفح افتراضية (مثال باستخدام eval)
-        const iframeContainer = html.match(/<div class="videoWrapper" id="iframe-container">([\s\S]*?)<\/div>/i);
-        if (!iframeContainer) {
-            throw new Error("لم يتم العثور على حاوية الفيديو");
-        }
-
-        // 6. استخراج رابط التشغيل الفعلي (هذا مثال - يحتاج للتعديل حسب آلية عمل الموقع)
-        const iframeSrcMatch = html.match(/<iframe[^>]+src="([^"]+)"/i);
-        if (!iframeSrcMatch) {
-            throw new Error("لم يتم العثور على رابط التشغيل المباشر");
-        }
-
-        const streamUrl = iframeSrcMatch[1];
-
-        console.log('تم اختيار السيرفر:', selectedServer.name);
-        console.log('رابط التشغيل:', streamUrl);
+        // 3. استخراج روابط التشغيل من السكريبت
+        const scriptRegex = /<script[^>]*>[\s\S]*?loadIframe\([^)]*data-server-id="(\d+)"[^)]*\)[^}]*src:\s*["']([^"']+)["'][\s\S]*?<\/script>/gi;
+        const sources = {};
         
-        return {
-            server: selectedServer.name,
-            url: streamUrl
-        };
+        let scriptMatch;
+        while ((scriptMatch = scriptRegex.exec(html)) !== null) {
+            sources[scriptMatch[1]] = scriptMatch[2];
+        }
+
+        // 4. اختيار أفضل سيرفر (الأولوية لـ streamwish)
+        const preferredOrder = ['streamwish', 'okru', 'vidstream', 'mp4upload', 'filemoon', 'dood', 'voe'];
+        let selectedServer = null;
+
+        for (const serverName of preferredOrder) {
+            selectedServer = serverList.find(s => s.name.includes(serverName));
+            if (selectedServer && sources[selectedServer.id]) break;
+        }
+
+        if (!selectedServer) {
+            selectedServer = serverList[0];
+        }
+
+        if (!sources[selectedServer.id]) {
+            throw new Error("معرفتش اجيب الرابط من السيرفر المختار");
+        }
+
+        const streamUrl = sources[selectedServer.id];
+
+        // 5. استخراج روابط التحميل لو محتاجها
+        const downloadLinks = {};
+        const downloadRegex = /<a class="btn btn-default download-link"[^>]*data-index="(\d+)"[^>]*>\s*<span class="notice">([^<]+)<\/span>/gi;
+        
+        let downloadMatch;
+        while ((downloadMatch = downloadRegex.exec(html)) !== null) {
+            downloadLinks[downloadMatch[2].trim().toLowerCase()] = downloadMatch[0].match(/href="([^"]+)"/i)?.[1] || '#';
+        }
+
+        // 6. إرجاع النتيجة كاملة
+        return JSON.stringify({
+            status: "success",
+            selected_server: {
+                id: selectedServer.id,
+                name: selectedServer.name,
+                url: streamUrl
+            },
+            all_servers: serverList,
+            download_links: downloadLinks,
+            episode_info: {
+                previous: html.match(/<a[^>]*rel="prev"[^>]*href="([^"]+)"/i)?.[1],
+                next: html.match(/<a[^>]*rel="next"[^>]*href="([^"]+)"/i)?.[1],
+                anime_page: html.match(/<a href="([^"]*\/anime\/[^"]+)"/i)?.[1]
+            }
+        }, null, 2);
 
     } catch (error) {
-        console.error('حدث خطأ في extractStreamUrl:', error);
-        return {
-            error: error.message,
+        return JSON.stringify({
+            status: "error",
+            message: error.message,
             fallbackUrl: 'https://files.catbox.moe/avolvc.mp4'
-        };
+        }, null, 2);
     }
 }
 
