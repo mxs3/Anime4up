@@ -135,93 +135,53 @@ async function extractStreamUrl(url) {
     'Referer': url,
   };
 
-  const res = await soraFetch(url, { headers });
-  const html = await res.text();
-  const sources = [];
+  try {
+    const res = await soraFetch(url, { headers });
+    const html = await res.text();
 
-  // استخراج كل iframes
-  const iframes = [...html.matchAll(/<iframe[^>]+src=['"]([^'"]+)['"]/gi)]
-    .map(m => m[1].startsWith('//') ? 'https:' + m[1] : m[1])
-    .filter(u => /^https?:\/\//.test(u));
+    // نجمع السيرفرات من صفحة الحلقة
+    const iframes = [...html.matchAll(/<iframe[^>]+src=['"]([^'"]+)['"]/gi)]
+      .map(m => m[1].replace(/^\/\//, 'https://'))
+      .filter(u => /^https?:\/\//.test(u));
 
-  for (const iframeUrl of iframes) {
-    try {
-      const res = await soraFetch(iframeUrl, { headers });
-      const frameHtml = await res.text();
+    const sources = [];
 
-      // STREAMWISH
-      if (iframeUrl.includes("streamwish")) {
-        const unpacked = unpackEval(frameHtml);
-        const match = unpacked?.match(/sources:\s*\[\s*\{[^}]*?file\s*:\s*["']([^"']+)["']/);
-        if (match) {
-          sources.push({
-            url: match[1],
-            isM3U8: match[1].includes('.m3u8'),
-            quality: 'auto',
-            headers,
-          });
-          continue;
+    for (const iframeUrl of iframes) {
+      if (!iframeUrl.includes('streamwish')) continue;
+
+      const r2 = await soraFetch(iframeUrl, { headers });
+      const html2 = await r2.text();
+
+      const scriptMatch = html2.match(/<script[^>]*>\s*(eval\(function\(p,a,c,k,e,d[\s\S]*?\)\))<\/script>/i);
+      if (!scriptMatch) continue;
+
+      const unpacked = (0, eval)(scriptMatch[1].replace('eval', ''));
+
+      const hlsMatch = unpacked.match(/https:\/\/[^"'\s]+\/hls2\/[^"'\s]+/i);
+      if (!hlsMatch) continue;
+
+      sources.push({
+        url: hlsMatch[0],
+        isM3U8: true,
+        quality: 'auto',
+        headers: {
+          "User-Agent": headers['User-Agent'],
+          "Referer": "https://streamwish.fun/"
         }
-      }
-
-      // KRAVAXXA / TRYZENDM
-      if (iframeUrl.includes("kravaxxa") || iframeUrl.includes("tryzendm")) {
-        const unpacked = unpackEval(frameHtml);
-        const match = unpacked?.match(/file\s*:\s*["']([^"']+)["']/);
-        if (match) {
-          sources.push({
-            url: match[1],
-            isM3U8: match[1].includes('.m3u8'),
-            quality: 'auto',
-            headers,
-          });
-          continue;
-        }
-      }
-
-      // DAILYMOTION - FHD
-      if (iframeUrl.includes("dailymotion.com/embed")) {
-        const match = iframeUrl.match(/video\/([^?#]+)/);
-        if (match) {
-          const videoId = match[1];
-          const playerUrl = `https://geo.dailymotion.com/player/xtv3w.html?video=${videoId}`;
-          sources.push({
-            url: playerUrl,
-            isM3U8: false,
-            quality: 'auto',
-            headers,
-          });
-          continue;
-        }
-      }
-
-      // روابط مباشرة داخل iframe
-      const direct = frameHtml.match(/(https?:\/\/[^\s"'<>]+?\.(mp4|m3u8)[^\s"'<>]*)/i);
-      if (direct) {
-        sources.push({
-          url: direct[1],
-          isM3U8: direct[1].includes('.m3u8'),
-          quality: 'auto',
-          headers,
-        });
-        continue;
-      }
-
-    } catch (err) {
-      // إهمال الخطأ داخل iframe
+      });
+      break; // بس تعبيه بـ streamwish واحد، زي ما طلبت
     }
-  }
 
-  // ✅ fallback سورا لو مفيش حاجة اشتغلت
-  if (!sources.length) {
-    return {
-      sources: [],
-      error: "no_sources_found",
-      message: "لم يتم العثور على أي روابط فيديو صالحة.",
-    };
-  }
+    if (sources.length > 0) {
+      return sources;
+    } else {
+      return { error: true, message: 'fallback: no streamwish sources found' };
+    }
 
-  return { sources };
+  } catch (err) {
+    return { error: true, message: `fallback: exception ${err.message}` };
+  }
+}
 
   // ------------ 🔽 الدوال المساعدة 🔽 ------------
   function unpackEval(code) {
