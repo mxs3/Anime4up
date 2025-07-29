@@ -132,100 +132,71 @@ async function extractEpisodes(url) {
 async function extractStreamUrl(html) {
   const fallback = 'https://files.catbox.moe/avolvc.mp4';
 
-  try {
-    const servers = [...html.matchAll(/data-id=["'](\d+)["'][^>]*data-src=["']([^"']+)["'][^>]*>\s*<span[^>]*>([^<]+)<\/span>/gi)]
-      .map(s => ({
-        id: s[1],
-        url: s[2].startsWith('http') ? s[2] : 'https:' + s[2],
-        name: s[3].trim().toLowerCase()
-      }))
-      .filter(s => s.name.includes('streamwish'));
+  const servers = [...html.matchAll(
+    /data-id=["'](\d+)["'][^>]*data-src=["']([^"']+)["'][^>]*>\s*<span[^>]*>([^<]+)<\/span>/gi
+  )].map(m => ({
+    id: m[1],
+    url: m[2].startsWith('http') ? m[2] : 'https:' + m[2],
+    name: m[3].trim().toLowerCase()
+  }))
+    .filter(s =>
+      s.name.includes('streamwish') &&
+      !s.url.includes('yonaplay')
+    );
 
-    if (!servers.length) {
-      return JSON.stringify({ status: 'error', message: 'لا يوجد سيرفر streamwish', url: fallback });
-    }
+  const results = [];
 
-    const results = [];
-
-    for (const server of servers) {
-      const res = await soraFetch(server.url, {
+  for (const srv of servers) {
+    try {
+      const res = await soraFetch(srv.url, {
         headers: {
-          'User-Agent': 'Mozilla/5.0 (iPhone; CPU iPhone OS 18_5 like Mac OS X)',
+          'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)',
           'Referer': 'https://witanime.world/'
         }
       });
+      const page = await res.text();
 
-      const body = await res.text();
-      const unpacked = unpack(body);
+      // محاولة فك eval
+      const packed = page.match(/eval\(function\(p,a,c,k,e,d\).*?\)\)/);
+      const unpacked = packed ? unpack(packed[0]) : null;
 
-      const allMatches = [...unpacked.matchAll(/file\s*:\s*["']([^"']+)["']/gi)];
+      // استخراج hls/mp4 من الـ unpacked أو مباشرة
+      const srcMatch = (unpacked || page).match(/sources\s*:\s*\[.*?["']file["']\s*:\s*["']([^"']+)["']/);
+      const videoUrl = srcMatch?.[1];
 
-      for (const match of allMatches) {
-        const streamUrl = match[1];
+      if (videoUrl) {
         results.push({
-          server: server.name,
-          url: streamUrl,
-          type: streamUrl.includes('.m3u8') ? 'hls' : 'mp4'
+          server: srv.name,
+          url: videoUrl
         });
       }
+    } catch (err) {
+      console.log(`Error fetching ${srv.url}:`, err);
     }
-
-    if (!results.length) {
-      return JSON.stringify({ status: 'error', message: 'لم يتم استخراج أي جودة من streamwish', url: fallback });
-    }
-
-    return JSON.stringify({ status: 'success', streams: results });
-
-  } catch (err) {
-    return JSON.stringify({ status: 'error', message: err.message || 'حدث خطأ غير متوقع', url: fallback });
   }
+
+  if (!results.length) {
+    return JSON.stringify({
+      status: 'error',
+      message: 'فشل استخراج روابط من streamwish',
+      url: fallback
+    });
+  }
+
+  return JSON.stringify({
+    status: 'success',
+    streams: results
+  });
 }
 
-// ✅ استخراج HLS من أي صفحة
-async function extractHlsStream(url) {
+// دالة فك eval
+function unpack(code) {
   try {
-    const res = await soraFetch(url, {
-      headers: {
-        'User-Agent': 'Mozilla/5.0 (iPhone; CPU iPhone OS 18_5 like Mac OS X)'
-      }
-    });
-
-    const html = await res.text();
-    const unpacked = unpack(html);
-    const match = unpacked.match(/file\s*:\s*["']([^"']+\.m3u8[^"']*)["']/i);
-    return match ? match[1] : null;
+    const context = {};
+    const vm = new Function('context', `with (context) { return ${code} }`);
+    return vm(context);
   } catch {
     return null;
-  }
-}
-
-// ✅ استخراج MP4 من أي صفحة
-async function extractMp4Stream(url) {
-  try {
-    const res = await soraFetch(url, {
-      headers: {
-        'User-Agent': 'Mozilla/5.0 (iPhone; CPU iPhone OS 18_5 like Mac OS X)'
-      }
-    });
-
-    const html = await res.text();
-    const unpacked = unpack(html);
-    const match = unpacked.match(/file\s*:\s*["']([^"']+\.mp4[^"']*)["']/i);
-    return match ? match[1] : null;
-  } catch {
-    return null;
-  }
-}
-
-// ✅ دالة unpack
-function unpack(str) {
-  const pattern = /eval\(function\(p,a,c,k,e,(?:r|d)\)([\s\S]+?)\)\)/;
-  const matches = str.match(pattern);
-  if (!matches) return '';
-  try {
-    return eval(matches[0]);
-  } catch {
-    return '';
   }
 }
 
