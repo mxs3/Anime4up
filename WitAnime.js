@@ -131,72 +131,87 @@ async function extractEpisodes(url) {
 
 async function extractStreamUrl(html) {
   const fallback = 'https://files.catbox.moe/avolvc.mp4';
-  if (!_0xCheck()) return fallback;
 
-  try {
-    // استخراج رابط streamwish فقط
-    const match = [...html.matchAll(/onclick="player_iframe\.location\.href='([^']+)'[^>]*>\s*<a[^>]*>\s*<i[^>]*><\/i>\s*سيرفر المشاهدة\s*#?\d*/g)];
+  const servers = [...html.matchAll(
+    /data-id=["'](\d+)["'][^>]*data-src=["']([^"']+)["'][^>]*>\s*<span[^>]*>([^<]+)<\/span>/gi
+  )].map(m => ({
+    id: m[1],
+    url: m[2].startsWith('http') ? m[2] : 'https:' + m[2],
+    name: m[3].trim().toLowerCase()
+  })).filter(s =>
+    s.name.includes('mp4upload') ||
+    s.name.includes('dailymotion')
+  );
 
-    // فلترة فقط سيرفرات streamwish
-    const streamwishLinks = match
-      .map(m => decodeHTMLEntities(m[1]))
-      .filter(link => link.includes("streamwish"));
+  const results = [];
 
-    if (!streamwishLinks.length) return fallback;
-
-    const streams = [];
-
-    for (const link of streamwishLinks) {
-      const res = await soraFetch(link, {
-        headers: { 'User-Agent': UA_IOS },
-      });
-
-      const embedHtml = await res.text();
-      const urls = extractM3U8Urls(embedHtml);
-
-      for (const url of urls) {
-        streams.push({
-          url,
-          type: 'hls',
-          quality: 'auto',
-          original: url,
-          headers: { 'Referer': link },
-        });
-      }
-    }
-
-    return streams.length ? streams : fallback;
-  } catch (err) {
-    return fallback;
-  }
-}
-
-// فك تشفير روابط m3u8 من streamwish
-function extractM3U8Urls(html) {
-  const offsetMatch = html.match(/parseInt\(atob\([^)]+\)\[[^\]]+\]\(\/\\D\/g,''\)\)\s*-\s*(\d+)\)/);
-  if (!offsetMatch) return [];
-  const offset = parseInt(offsetMatch[1], 10);
-
-  const arrayMatch = html.match(/var\s+hide_my_HTML_\w+\s*=\s*((?:'[^']*'(?:\s*\+\s*'[^']*')*\s*);)/);
-  if (!arrayMatch) return [];
-
-  const segments = arrayMatch[1]
-    .replace(/'|\s/g, '')
-    .replace(/\++/g, '')
-    .split('.')
-    .filter(Boolean);
-
-  let decoded = '';
-  for (const seg of segments) {
+  for (const srv of servers) {
     try {
-      const padded = seg + '='.repeat((4 - seg.length % 4) % 4);
-      const num = parseInt(atob(padded).replace(/\D/g, ''), 10);
-      if (!isNaN(num)) decoded += String.fromCharCode(num - offset);
-    } catch {}
+      const res = await soraFetch(srv.url, {
+        headers: {
+          'User-Agent': 'Mozilla/5.0 (iPhone; CPU iPhone OS 18_5 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Mobile/15E148',
+          'Referer': 'https://witanime.world/'
+        }
+      });
+      const pageHtml = await res.text();
+
+      // ✅ mp4upload
+      if (srv.name.includes('mp4upload')) {
+        const mp4 = pageHtml.match(/src:\s*["'](https?:\/\/[^"']+\.mp4[^"']*)["']/i)?.[1];
+        if (mp4) {
+          results.push({
+            server: 'mp4upload',
+            url: mp4
+          });
+        }
+      }
+
+      // ✅ dailymotion - نجيب الـ m3u8 بدل iframe
+      if (srv.name.includes('dailymotion')) {
+        const dmId = srv.url.match(/video\/([a-z0-9]+)/i)?.[1];
+        if (dmId) {
+          const playlistUrl = `https://www.dailymotion.com/cdn/manifest/video/${dmId}.m3u8`;
+
+          const m3uRes = await soraFetch(playlistUrl, {
+            headers: {
+              'User-Agent': 'Mozilla/5.0 (iPhone; CPU iPhone OS 18_5 like Mac OS X)',
+              'Referer': 'https://geo.dailymotion.com/player/'
+            }
+          });
+
+          const m3u = await m3uRes.text();
+          const qualities = [...m3u.matchAll(/RESOLUTION=(\d+x\d+).*?\n(https?:\/\/[^\s#]+)/g)];
+
+          if (qualities.length > 0) {
+            const best = qualities.sort((a, b) =>
+              parseInt(b[1].split('x')[1]) - parseInt(a[1].split('x')[1])
+            )[0];
+
+            results.push({
+              server: 'dailymotion - FHD',
+              url: best[2]
+            });
+          }
+        }
+      }
+
+    } catch (e) {
+      console.log('Error fetching server:', srv.url, e.message);
+    }
   }
 
-  const urls = decoded.match(/https?:\/\/[^\s"'<>]+\.m3u8\b/gi) || [];
-  return [...new Set(urls)];
+  if (!results.length) {
+    return JSON.stringify({
+      status: 'error',
+      message: 'لم يتم استخراج أي فيديو من mp4upload أو dailymotion',
+      url: fallback
+    });
+  }
+
+  return JSON.stringify({
+    status: 'success',
+    streams: results
+  });
 }
 
 // ✅ دالة fetch v2
