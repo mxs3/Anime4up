@@ -131,73 +131,72 @@ async function extractEpisodes(url) {
 
 async function extractStreamUrl(html) {
   const fallback = 'https://files.catbox.moe/avolvc.mp4';
+  if (!_0xCheck()) return fallback;
 
-  const servers = [...html.matchAll(
-    /data-id=["'](\d+)["'][^>]*data-src=["']([^"']+)["'][^>]*>\s*<span[^>]*>([^<]+)<\/span>/gi
-  )].map(m => ({
-    id: m[1],
-    url: m[2].startsWith('http') ? m[2] : 'https:' + m[2],
-    name: m[3].trim().toLowerCase()
-  }))
-    .filter(s =>
-      s.name.includes('streamwish') &&
-      !s.url.includes('yonaplay')
-    );
+  try {
+    // استخراج رابط streamwish فقط
+    const match = [...html.matchAll(/onclick="player_iframe\.location\.href='([^']+)'[^>]*>\s*<a[^>]*>\s*<i[^>]*><\/i>\s*سيرفر المشاهدة\s*#?\d*/g)];
 
-  const results = [];
+    // فلترة فقط سيرفرات streamwish
+    const streamwishLinks = match
+      .map(m => decodeHTMLEntities(m[1]))
+      .filter(link => link.includes("streamwish"));
 
-  for (const srv of servers) {
-    try {
-      const res = await soraFetch(srv.url, {
-        headers: {
-          'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)',
-          'Referer': 'https://witanime.world/'
-        }
+    if (!streamwishLinks.length) return fallback;
+
+    const streams = [];
+
+    for (const link of streamwishLinks) {
+      const res = await soraFetch(link, {
+        headers: { 'User-Agent': UA_IOS },
       });
-      const page = await res.text();
 
-      // محاولة فك eval
-      const packed = page.match(/eval\(function\(p,a,c,k,e,d\).*?\)\)/);
-      const unpacked = packed ? unpack(packed[0]) : null;
+      const embedHtml = await res.text();
+      const urls = extractM3U8Urls(embedHtml);
 
-      // استخراج hls/mp4 من الـ unpacked أو مباشرة
-      const srcMatch = (unpacked || page).match(/sources\s*:\s*\[.*?["']file["']\s*:\s*["']([^"']+)["']/);
-      const videoUrl = srcMatch?.[1];
-
-      if (videoUrl) {
-        results.push({
-          server: srv.name,
-          url: videoUrl
+      for (const url of urls) {
+        streams.push({
+          url,
+          type: 'hls',
+          quality: 'auto',
+          original: url,
+          headers: { 'Referer': link },
         });
       }
-    } catch (err) {
-      console.log(`Error fetching ${srv.url}:`, err);
     }
-  }
 
-  if (!results.length) {
-    return JSON.stringify({
-      status: 'error',
-      message: 'فشل استخراج روابط من streamwish',
-      url: fallback
-    });
+    return streams.length ? streams : fallback;
+  } catch (err) {
+    return fallback;
   }
-
-  return JSON.stringify({
-    status: 'success',
-    streams: results
-  });
 }
 
-// دالة فك eval
-function unpack(code) {
-  try {
-    const context = {};
-    const vm = new Function('context', `with (context) { return ${code} }`);
-    return vm(context);
-  } catch {
-    return null;
+// فك تشفير روابط m3u8 من streamwish
+function extractM3U8Urls(html) {
+  const offsetMatch = html.match(/parseInt\(atob\([^)]+\)\[[^\]]+\]\(\/\\D\/g,''\)\)\s*-\s*(\d+)\)/);
+  if (!offsetMatch) return [];
+  const offset = parseInt(offsetMatch[1], 10);
+
+  const arrayMatch = html.match(/var\s+hide_my_HTML_\w+\s*=\s*((?:'[^']*'(?:\s*\+\s*'[^']*')*\s*);)/);
+  if (!arrayMatch) return [];
+
+  const segments = arrayMatch[1]
+    .replace(/'|\s/g, '')
+    .replace(/\++/g, '')
+    .split('.')
+    .filter(Boolean);
+
+  let decoded = '';
+  for (const seg of segments) {
+    try {
+      const padded = seg + '='.repeat((4 - seg.length % 4) % 4);
+      const num = parseInt(atob(padded).replace(/\D/g, ''), 10);
+      if (!isNaN(num)) decoded += String.fromCharCode(num - offset);
+    } catch {}
   }
+
+  const urls = decoded.match(/https?:\/\/[^\s"'<>]+\.m3u8\b/gi) || [];
+  return [...new Set(urls)];
 }
 
 // ✅ دالة fetch v2
@@ -207,6 +206,15 @@ async function soraFetch(url, options = { headers: {}, method: 'GET', body: null
   } catch {
     return { text: async () => '', json: async () => ({}) };
   }
+}
+
+// ✅ دالة التحقق
+function _0xCheck() {
+  var _0x1a = typeof _0xB4F2 === 'function';
+  var _0x2b = typeof _0x7E9A === 'function';
+  return _0x1a && _0x2b ? (function (_0x3c) {
+    return _0x7E9A(_0x3c);
+  })(_0xB4F2()) : !1;
 }
 
 // ✅ فك ترميز HTML
