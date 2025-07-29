@@ -157,7 +157,7 @@ async function extractStreamUrl(html) {
 
       // ✅ mp4upload
       if (srv.name.includes('mp4upload')) {
-        const mp4 = pageHtml.match(/src:\s*["'](https?:\/\/[^"']+\.mp4[^"']*)["']/i)?.[1];
+        const mp4 = pageHtml.match(/(?:file|src):\s*["'](https?:\/\/[^"']+\.mp4[^"']*)["']/i)?.[1];
         if (mp4) {
           results.push({
             server: 'mp4upload',
@@ -175,7 +175,8 @@ async function extractStreamUrl(html) {
           const m3uRes = await soraFetch(playlistUrl, {
             headers: {
               'User-Agent': 'Mozilla/5.0 (iPhone; CPU iPhone OS 18_5 like Mac OS X)',
-              'Referer': 'https://geo.dailymotion.com/player/'
+              'Referer': 'https://geo.dailymotion.com/player/',
+              'Origin': 'https://www.dailymotion.com'
             }
           });
 
@@ -201,6 +202,7 @@ async function extractStreamUrl(html) {
   }
 
   if (!results.length) {
+    console.log('⚠️ لم يتم العثور على أي نتائج، تحقق من السيرفرات أو الكود.');
     return JSON.stringify({
       status: 'error',
       message: 'لم يتم استخراج أي فيديو من mp4upload أو dailymotion',
