@@ -132,11 +132,6 @@ async function extractEpisodes(url) {
 async function extractStreamUrl(url) {
   if (!_0xCheck()) return 'https://files.catbox.moe/avolvc.mp4';
 
-  const multiStreams = {
-    streams: [],
-    subtitles: null
-  };
-
   try {
     const headers = {
       'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)',
@@ -146,36 +141,65 @@ async function extractStreamUrl(url) {
     const res = await fetchv2(url, headers);
     const html = await res.text();
 
-    // ✅ استخراج رابط iframe لـ Dailymotion
     const iframeMatch = html.match(/<iframe[^>]+src=["'](https:\/\/www\.dailymotion\.com\/embed\/video\/[^"']+)["']/i);
-    if (iframeMatch) {
-      const embedUrl = iframeMatch[1];
+    if (!iframeMatch) return fallback();
 
-      // 💡 نطلب صفحة الـ embed نفسها علشان نطلع منها m3u8
-      const embedRes = await fetchv2(embedUrl, headers);
-      const embedHtml = await embedRes.text();
+    const embedUrl = iframeMatch[1];
+    const embedRes = await fetchv2(embedUrl, headers);
+    const embedHtml = await embedRes.text();
 
-      // ✅ استخراج m3u8 من embed
-      const m3u8Match = embedHtml.match(/["'](https:\/\/[^"']+\.m3u8[^"']*)["']/i);
-      if (m3u8Match) {
-        const m3u8Url = m3u8Match[1];
+    // ✅ استخراج كل روابط m3u8 المشفرة من الـ HTML
+    const m3u8Urls = extractM3U8Urls(embedHtml);
+    if (!m3u8Urls.length) return fallback();
 
-        multiStreams.streams.push({
-          title: "Dailymotion",
-          streamUrl: m3u8Url,
-          type: "hls",
-          headers,
-          subtitles: null
-        });
-
-        console.log("✅ Extracted Dailymotion m3u8:", m3u8Url);
-      }
-    }
+    const multiStreams = {
+      streams: m3u8Urls.map(m3u8Url => ({
+        title: "Dailymotion",
+        streamUrl: m3u8Url,
+        type: "hls",
+        headers,
+        subtitles: null
+      })),
+      subtitles: null
+    };
 
     return JSON.stringify(multiStreams);
   } catch (err) {
     console.error("❌ Error extracting stream:", err);
+    return fallback();
+  }
+
+  function fallback() {
     return JSON.stringify({ streams: [], subtitles: null });
+  }
+
+  // ✅ دالة داخلية لاستخراج روابط m3u8 من كود مشفر
+  function extractM3U8Urls(html) {
+    const offsetMatch = html.match(/parseInt\(atob\([^)]+\)\[[^\]]+\]\(\/\\D\/g,''\)\)\s*-\s*(\d+)\)/);
+    if (!offsetMatch) return [];
+
+    const offset = parseInt(offsetMatch[1], 10);
+
+    const arrayMatch = html.match(/var\s+hide_my_HTML_\w+\s*=\s*((?:'[^']*'(?:\s*\+\s*'[^']*')*\s*);)/);
+    if (!arrayMatch) return [];
+
+    let decoded = '';
+    const segments = arrayMatch[1]
+      .replace(/'|\s/g, '')
+      .replace(/\++/g, '')
+      .split('.')
+      .filter(Boolean);
+
+    for (const seg of segments) {
+      try {
+        const padded = seg + '='.repeat((4 - seg.length % 4) % 4);
+        const num = parseInt(atob(padded).replace(/\D/g, ''), 10);
+        if (!isNaN(num)) decoded += String.fromCharCode(num - offset);
+      } catch { /* skip invalid segments */ }
+    }
+
+    const urls = decoded.match(/https?:\/\/[^\s"'<>]+\.m3u8\b/gi) || [];
+    return [...new Set(urls)];
   }
 }
 
