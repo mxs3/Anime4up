@@ -138,33 +138,38 @@ async function extractStreamUrl(url) {
   };
 
   try {
-    const res = await fetchv2(url);
-    const html = await res.text();
-
     const headers = {
       'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)',
       'Referer': url,
     };
 
-    // ✅ استخراج iframe الخاص بـ Dailymotion من الصفحة بعد الضغط
-    const dailymotionIframeMatch = html.match(/<iframe[^>]+src=["'](https:\/\/www\.dailymotion\.com\/embed\/video\/[^"']+)["']/i);
+    const res = await fetchv2(url, headers);
+    const html = await res.text();
 
-    if (dailymotionIframeMatch) {
-      const embedUrl = dailymotionIframeMatch[1];
-
+    // ✅ Dailymotion
+    const dailymotionMatch = html.match(/<iframe[^>]+src=["'](https:\/\/www\.dailymotion\.com\/embed\/video\/[^"']+)["']/i);
+    if (dailymotionMatch) {
       multiStreams.streams.push({
         title: "Dailymotion",
-        streamUrl: embedUrl,
-        headers: headers,
+        streamUrl: dailymotionMatch[1],
+        headers,
         subtitles: null
       });
+    }
 
-      console.log("✅ Dailymotion extracted:", embedUrl);
-    } else {
-      console.warn("❌ No Dailymotion iframe found.");
+    // ✅ Streamwish مباشرة أو عبر بروكسي (hglink/haxloppd)
+    const streamwishMatch = html.match(/<iframe[^>]+src=["'](https:\/\/(?:streamwish|hglink\.to|haxloppd\.com)\/e\/[^"']+)["']/i);
+    if (streamwishMatch) {
+      multiStreams.streams.push({
+        title: "Streamwish",
+        streamUrl: streamwishMatch[1],
+        headers,
+        subtitles: null
+      });
     }
 
     if (multiStreams.streams.length === 0) {
+      console.warn("❌ No supported streams found.");
       return JSON.stringify({ streams: [], subtitles: null });
     }
 
