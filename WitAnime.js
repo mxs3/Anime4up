@@ -138,58 +138,43 @@ async function extractStreamUrl(url) {
   };
 
   try {
-    const res = await fetchv2(url);
-    const html = await res.text();
-
     const headers = {
       'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)',
-      'Referer': url,
+      'Referer': url
     };
 
-    // 🔎 استخراج روابط السيرفرات بعد الضغط (simulate button click)
-    const matches = [...html.matchAll(/<li[^>]*data-type=["']([^"']+)["'][^>]*data-post=["']([^"']+)["'][^>]*data-nume=["']([^"']+)["'][^>]*>\s*<span[^>]*class=["']server["']>\s*(.*?)\s*<\/span>/gi)];
+    const res = await fetchv2(url, headers);
+    const html = await res.text();
 
-    for (const match of matches) {
-      const [_, type, post, nume, serverNameRaw] = match;
-      const serverName = serverNameRaw.trim().toLowerCase();
+    // ✅ استخراج رابط iframe لـ Dailymotion
+    const iframeMatch = html.match(/<iframe[^>]+src=["'](https:\/\/www\.dailymotion\.com\/embed\/video\/[^"']+)["']/i);
+    if (iframeMatch) {
+      const embedUrl = iframeMatch[1];
 
-      const body = `action=player_ajax&post=${post}&nume=${nume}&type=${type}`;
-      const ajaxHeaders = {
-        ...headers,
-        'Origin': 'https://witanime.world',
-      };
+      // 💡 نطلب صفحة الـ embed نفسها علشان نطلع منها m3u8
+      const embedRes = await fetchv2(embedUrl, headers);
+      const embedHtml = await embedRes.text();
 
-      const ajaxRes = await fetchv2('https://witanime.world/wp-admin/admin-ajax.php', ajaxHeaders, 'POST', body);
-      const json = await ajaxRes.json();
+      // ✅ استخراج m3u8 من embed
+      const m3u8Match = embedHtml.match(/["'](https:\/\/[^"']+\.m3u8[^"']*)["']/i);
+      if (m3u8Match) {
+        const m3u8Url = m3u8Match[1];
 
-      if (!json?.embed_url) continue;
-
-      const embedUrl = json.embed_url;
-
-      // ✅ دعم streamwish وdailymotion والدومينات البديلة
-      if (/streamwish|hglink\.to|haxloppd\.com/.test(embedUrl)) {
-        const streamData = await streamwishExtractor(embedUrl);
-        if (streamData?.url) {
-          multiStreams.streams.push({
-            title: "Streamwish",
-            streamUrl: streamData.url,
-            headers: streamData.headers,
-            subtitles: null
-          });
-        }
-      } else if (/dailymotion\.com/.test(embedUrl)) {
         multiStreams.streams.push({
           title: "Dailymotion",
-          streamUrl: embedUrl,
+          streamUrl: m3u8Url,
+          type: "hls",
           headers,
           subtitles: null
         });
+
+        console.log("✅ Extracted Dailymotion m3u8:", m3u8Url);
       }
     }
 
     return JSON.stringify(multiStreams);
   } catch (err) {
-    console.error("❌ Error in extractStreamUrl:", err);
+    console.error("❌ Error extracting stream:", err);
     return JSON.stringify({ streams: [], subtitles: null });
   }
 }
