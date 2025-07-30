@@ -129,91 +129,50 @@ async function extractEpisodes(url) {
   }
 }
 
-async function extractStreamUrl(html) {
-  const fallback = 'https://files.catbox.moe/avolvc.mp4';
+async function extractStreamUrl(url) {
+  if (!_0xCheck()) return 'https://files.catbox.moe/avolvc.mp4';
 
-  const servers = [...html.matchAll(
-    /data-id=["'](\d+)["'][^>]*data-src=["']([^"']+)["'][^>]*>\s*<span[^>]*>([^<]+)<\/span>/gi
-  )].map(m => ({
-    id: m[1],
-    url: m[2].startsWith('http') ? m[2] : 'https:' + m[2],
-    name: m[3].trim().toLowerCase()
-  })).filter(s =>
-    s.name.includes('mp4upload') ||
-    s.name.includes('dailymotion')
-  );
+  const multiStreams = {
+    streams: [],
+    subtitles: null
+  };
 
-  const results = [];
+  try {
+    const res = await fetchv2(url);
+    const html = await res.text();
 
-  for (const srv of servers) {
-    try {
-      const res = await soraFetch(srv.url, {
-        headers: {
-          'User-Agent': 'Mozilla/5.0 (iPhone; CPU iPhone OS 18_5 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Mobile/15E148',
-          'Referer': 'https://witanime.world/'
-        }
+    const headers = {
+      'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)',
+      'Referer': url,
+    };
+
+    // ✅ استخراج iframe الخاص بـ Dailymotion من الصفحة بعد الضغط
+    const dailymotionIframeMatch = html.match(/<iframe[^>]+src=["'](https:\/\/www\.dailymotion\.com\/embed\/video\/[^"']+)["']/i);
+
+    if (dailymotionIframeMatch) {
+      const embedUrl = dailymotionIframeMatch[1];
+
+      multiStreams.streams.push({
+        title: "Dailymotion",
+        streamUrl: embedUrl,
+        headers: headers,
+        subtitles: null
       });
-      const pageHtml = await res.text();
 
-      // ✅ mp4upload
-      if (srv.name.includes('mp4upload')) {
-        const mp4 = pageHtml.match(/(?:file|src):\s*["'](https?:\/\/[^"']+\.mp4[^"']*)["']/i)?.[1];
-        if (mp4) {
-          results.push({
-            server: 'mp4upload',
-            url: mp4
-          });
-        }
-      }
-
-      // ✅ dailymotion - نجيب الـ m3u8 بدل iframe
-      if (srv.name.includes('dailymotion')) {
-        const dmId = srv.url.match(/video\/([a-z0-9]+)/i)?.[1];
-        if (dmId) {
-          const playlistUrl = `https://www.dailymotion.com/cdn/manifest/video/${dmId}.m3u8`;
-
-          const m3uRes = await soraFetch(playlistUrl, {
-            headers: {
-              'User-Agent': 'Mozilla/5.0 (iPhone; CPU iPhone OS 18_5 like Mac OS X)',
-              'Referer': 'https://geo.dailymotion.com/player/',
-              'Origin': 'https://www.dailymotion.com'
-            }
-          });
-
-          const m3u = await m3uRes.text();
-          const qualities = [...m3u.matchAll(/RESOLUTION=(\d+x\d+).*?\n(https?:\/\/[^\s#]+)/g)];
-
-          if (qualities.length > 0) {
-            const best = qualities.sort((a, b) =>
-              parseInt(b[1].split('x')[1]) - parseInt(a[1].split('x')[1])
-            )[0];
-
-            results.push({
-              server: 'dailymotion - FHD',
-              url: best[2]
-            });
-          }
-        }
-      }
-
-    } catch (e) {
-      console.log('Error fetching server:', srv.url, e.message);
+      console.log("✅ Dailymotion extracted:", embedUrl);
+    } else {
+      console.warn("❌ No Dailymotion iframe found.");
     }
-  }
 
-  if (!results.length) {
-    console.log('⚠️ لم يتم العثور على أي نتائج، تحقق من السيرفرات أو الكود.');
-    return JSON.stringify({
-      status: 'error',
-      message: 'لم يتم استخراج أي فيديو من mp4upload أو dailymotion',
-      url: fallback
-    });
-  }
+    if (multiStreams.streams.length === 0) {
+      return JSON.stringify({ streams: [], subtitles: null });
+    }
 
-  return JSON.stringify({
-    status: 'success',
-    streams: results
-  });
+    return JSON.stringify(multiStreams);
+  } catch (err) {
+    console.error("❌ Error in extractStreamUrl:", err);
+    return JSON.stringify({ streams: [], subtitles: null });
+  }
 }
 
 // ✅ دالة fetch v2
