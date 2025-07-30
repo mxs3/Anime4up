@@ -137,99 +137,67 @@ async function extractStreamUrl(url) {
     subtitles: null
   };
 
-  const headers = {
-    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)',
-    'Referer': url,
-  };
-
   try {
-    const res = await fetchv2(url, headers);
+    const res = await fetchv2(url);
     const html = await res.text();
 
-    // ✅ Dailymotion
-    const dailymotionMatch = html.match(/<iframe[^>]+src=["'](https:\/\/www\.dailymotion\.com\/embed\/video\/[^"']+)["']/i);
-    if (dailymotionMatch) {
-      multiStreams.streams.push({
-        title: "Dailymotion",
-        streamUrl: dailymotionMatch[1],
-        headers,
-        subtitles: null
-      });
-    }
+    const headers = {
+      'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)',
+      'Referer': url,
+    };
 
-    // ✅ hglink.to أو haxloppd.com → streamwish
-    const altDomainsMatch = html.match(/<iframe[^>]+src=["'](https:\/\/(?:hglink\.to|haxloppd\.com)\/e\/[^"']+)["']/i);
-    if (altDomainsMatch) {
-      const realEmbed = await extractStreamwishFromProxy(altDomainsMatch[1], headers);
-      if (realEmbed) {
+    // 🔎 استخراج روابط السيرفرات بعد الضغط (simulate button click)
+    const matches = [...html.matchAll(/<li[^>]*data-type=["']([^"']+)["'][^>]*data-post=["']([^"']+)["'][^>]*data-nume=["']([^"']+)["'][^>]*>\s*<span[^>]*class=["']server["']>\s*(.*?)\s*<\/span>/gi)];
+
+    for (const match of matches) {
+      const [_, type, post, nume, serverNameRaw] = match;
+      const serverName = serverNameRaw.trim().toLowerCase();
+
+      const body = `action=player_ajax&post=${post}&nume=${nume}&type=${type}`;
+      const ajaxHeaders = {
+        ...headers,
+        'Origin': 'https://witanime.world',
+      };
+
+      const ajaxRes = await fetchv2('https://witanime.world/wp-admin/admin-ajax.php', ajaxHeaders, 'POST', body);
+      const json = await ajaxRes.json();
+
+      if (!json?.embed_url) continue;
+
+      const embedUrl = json.embed_url;
+
+      // ✅ دعم streamwish وdailymotion والدومينات البديلة
+      if (/streamwish|hglink\.to|haxloppd\.com/.test(embedUrl)) {
+        const streamData = await streamwishExtractor(embedUrl);
+        if (streamData?.url) {
+          multiStreams.streams.push({
+            title: "Streamwish",
+            streamUrl: streamData.url,
+            headers: streamData.headers,
+            subtitles: null
+          });
+        }
+      } else if (/dailymotion\.com/.test(embedUrl)) {
         multiStreams.streams.push({
-          title: "Streamwish Proxy",
-          streamUrl: realEmbed,
+          title: "Dailymotion",
+          streamUrl: embedUrl,
           headers,
           subtitles: null
         });
       }
-    }
-
-    // ✅ streamwish مباشرة
-    const streamwishMatch = html.match(/<iframe[^>]+src=["'](https:\/\/streamwish\.[^"']+)["']/i);
-    if (streamwishMatch) {
-      const direct = await extractStreamwishDirect(streamwishMatch[1], headers);
-      if (direct) {
-        multiStreams.streams.push({
-          title: "Streamwish",
-          streamUrl: direct,
-          headers,
-          subtitles: null
-        });
-      }
-    }
-
-    if (multiStreams.streams.length === 0) {
-      console.warn("❌ No supported streams found.");
-      return JSON.stringify({ streams: [], subtitles: null });
     }
 
     return JSON.stringify(multiStreams);
-
   } catch (err) {
     console.error("❌ Error in extractStreamUrl:", err);
     return JSON.stringify({ streams: [], subtitles: null });
-  }
-
-  // ✅ استخراج من hglink / haxloppd
-  async function extractStreamwishFromProxy(proxyUrl, headers) {
-    try {
-      const res = await fetchv2(proxyUrl, headers);
-      const html = await res.text();
-      const streamwishEmbed = html.match(/<iframe[^>]+src=["'](https:\/\/streamwish\.[^"']+)["']/i)?.[1];
-      if (!streamwishEmbed) return null;
-      return await extractStreamwishDirect(streamwishEmbed, headers);
-    } catch (e) {
-      console.warn("Failed to extract from proxy:", proxyUrl, e);
-      return null;
-    }
-  }
-
-  // ✅ استخراج مباشر من streamwish (mp4)
-  async function extractStreamwishDirect(embedUrl, headers) {
-    try {
-      const res = await fetchv2(embedUrl, headers);
-      const html = await res.text();
-      const sources = [...html.matchAll(/sources:\s*\[\s*\{\s*file:\s*"(https[^"]+\.mp4[^"]*)"/g)];
-      const mp4 = sources?.[0]?.[1];
-      return mp4 || null;
-    } catch (e) {
-      console.warn("Failed to extract from streamwish:", embedUrl, e);
-      return null;
-    }
   }
 }
 
 // ✅ دالة fetch v2
 async function soraFetch(url, options = { headers: {}, method: 'GET', body: null }) {
   try {
-    return await fetchv2(url, options.headers ?? {}, options.method ?? 'GET');
+    return await fetchv2(url, options.headers ?? {}, options.method ?? 'GET', options.body ?? null);
   } catch {
     return { text: async () => '', json: async () => ({}) };
   }
