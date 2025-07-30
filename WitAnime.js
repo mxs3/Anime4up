@@ -137,12 +137,12 @@ async function extractStreamUrl(url) {
     subtitles: null
   };
 
-  try {
-    const headers = {
-      'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)',
-      'Referer': url,
-    };
+  const headers = {
+    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)',
+    'Referer': url,
+  };
 
+  try {
     const res = await fetchv2(url, headers);
     const html = await res.text();
 
@@ -157,15 +157,32 @@ async function extractStreamUrl(url) {
       });
     }
 
-    // ✅ Streamwish مباشرة أو عبر بروكسي (hglink/haxloppd)
-    const streamwishMatch = html.match(/<iframe[^>]+src=["'](https:\/\/(?:streamwish|hglink\.to|haxloppd\.com)\/e\/[^"']+)["']/i);
+    // ✅ hglink.to أو haxloppd.com → streamwish
+    const altDomainsMatch = html.match(/<iframe[^>]+src=["'](https:\/\/(?:hglink\.to|haxloppd\.com)\/e\/[^"']+)["']/i);
+    if (altDomainsMatch) {
+      const realEmbed = await extractStreamwishFromProxy(altDomainsMatch[1], headers);
+      if (realEmbed) {
+        multiStreams.streams.push({
+          title: "Streamwish Proxy",
+          streamUrl: realEmbed,
+          headers,
+          subtitles: null
+        });
+      }
+    }
+
+    // ✅ streamwish مباشرة
+    const streamwishMatch = html.match(/<iframe[^>]+src=["'](https:\/\/streamwish\.[^"']+)["']/i);
     if (streamwishMatch) {
-      multiStreams.streams.push({
-        title: "Streamwish",
-        streamUrl: streamwishMatch[1],
-        headers,
-        subtitles: null
-      });
+      const direct = await extractStreamwishDirect(streamwishMatch[1], headers);
+      if (direct) {
+        multiStreams.streams.push({
+          title: "Streamwish",
+          streamUrl: direct,
+          headers,
+          subtitles: null
+        });
+      }
     }
 
     if (multiStreams.streams.length === 0) {
@@ -174,9 +191,38 @@ async function extractStreamUrl(url) {
     }
 
     return JSON.stringify(multiStreams);
+
   } catch (err) {
     console.error("❌ Error in extractStreamUrl:", err);
     return JSON.stringify({ streams: [], subtitles: null });
+  }
+
+  // ✅ استخراج من hglink / haxloppd
+  async function extractStreamwishFromProxy(proxyUrl, headers) {
+    try {
+      const res = await fetchv2(proxyUrl, headers);
+      const html = await res.text();
+      const streamwishEmbed = html.match(/<iframe[^>]+src=["'](https:\/\/streamwish\.[^"']+)["']/i)?.[1];
+      if (!streamwishEmbed) return null;
+      return await extractStreamwishDirect(streamwishEmbed, headers);
+    } catch (e) {
+      console.warn("Failed to extract from proxy:", proxyUrl, e);
+      return null;
+    }
+  }
+
+  // ✅ استخراج مباشر من streamwish (mp4)
+  async function extractStreamwishDirect(embedUrl, headers) {
+    try {
+      const res = await fetchv2(embedUrl, headers);
+      const html = await res.text();
+      const sources = [...html.matchAll(/sources:\s*\[\s*\{\s*file:\s*"(https[^"]+\.mp4[^"]*)"/g)];
+      const mp4 = sources?.[0]?.[1];
+      return mp4 || null;
+    } catch (e) {
+      console.warn("Failed to extract from streamwish:", embedUrl, e);
+      return null;
+    }
   }
 }
 
