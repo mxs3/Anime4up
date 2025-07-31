@@ -132,26 +132,116 @@ async function extractEpisodes(url) {
 async function extractStreamUrl(html) {
   if (!_0xCheck()) return 'https://files.catbox.moe/avolvc.mp4';
 
-  const multiStreams = [];
+  const headers = {
+    'User-Agent': 'Mozilla/5.0',
+  };
 
-  // استخراج iframe Dailymotion
-  const dailymotionId = html.match(/https:\/\/www\.dailymotion\.com\/embed\/video\/([a-z0-9]+)/i)?.[1];
-  if (dailymotionId) {
-    const embedUrl = `https://www.dailymotion.com/embed/video/${dailymotionId}`;
-    const embedRes = await fetchv2(embedUrl, {
-      headers: { 'User-Agent': 'Mozilla/5.0' }
-    });
-    const m3u8Url = embedRes.match(/https:\/\/[^"']+\.m3u8[^"']*/i)?.[0];
-    if (m3u8Url) {
-      multiStreams.push({
-        file: m3u8Url,
-        type: 'hls',
-        label: 'Dailymotion'
-      });
-    }
+  const multiStreams = {
+    streams: [],
+    subtitles: null
+  };
+
+  // جمع كل السيرفرات المفعلة في الصفحة
+  const matches = [...html.matchAll(/<iframe[^>]+src=["'](https:\/\/(?:www\.)?(videa\.hu|dailymotion\.com|streamwish\.to|yourupload\.com)[^"']+)["']/gi)];
+
+  if (matches.length === 0) return JSON.stringify({ streams: [], subtitles: null });
+
+  // إنشاء قائمة خيارات
+  const options = matches.map((m, i) => {
+    const domain = m[2];
+    let name = domain.split('.')[0];
+    name = name.charAt(0).toUpperCase() + name.slice(1);
+    if (m[1].includes("FHD")) name += " - FHD";
+    return `${i + 1}. ${name}`;
+  }).join('\n');
+
+  const index = parseInt(prompt(`❓ اختر السيرفر:\n${options}`)) - 1;
+  if (isNaN(index) || index < 0 || index >= matches.length) return JSON.stringify({ streams: [], subtitles: null });
+
+  const selectedUrl = matches[index][1];
+
+  let stream = null;
+  if (selectedUrl.includes('videa.hu')) {
+    stream = await extractVidea(selectedUrl, headers);
+  } else if (selectedUrl.includes('dailymotion.com')) {
+    stream = await extractDailymotion(selectedUrl, headers);
+  } else if (selectedUrl.includes('streamwish.to')) {
+    stream = await extractStreamwish(selectedUrl, headers);
+  } else if (selectedUrl.includes('yourupload.com')) {
+    stream = await extractYourUpload(selectedUrl, headers);
   }
 
-  return multiStreams.length > 0 ? multiStreams : 'https://files.catbox.moe/avolvc.mp4';
+  if (stream) multiStreams.streams.push(stream);
+
+  return JSON.stringify(multiStreams);
+}
+
+// ✅ Videa
+async function extractVidea(url, headers) {
+  const res = await fetchv2(url, headers);
+  const html = await res.text();
+  const m3u8 = html.match(/https:\/\/[^"']+\.m3u8[^"']*/i)?.[0];
+  if (m3u8) {
+    return {
+      title: 'Videa',
+      streamUrl: m3u8,
+      type: 'hls',
+      headers,
+      subtitles: null
+    };
+  }
+  return null;
+}
+
+// ✅ Dailymotion
+async function extractDailymotion(url, headers) {
+  const res = await fetchv2(url, headers);
+  const html = await res.text();
+  const m3u8 = html.match(/https:\/\/[^"']+\.m3u8[^"']*/i)?.[0];
+  if (m3u8) {
+    return {
+      title: 'Dailymotion',
+      streamUrl: m3u8,
+      type: 'hls',
+      headers,
+      subtitles: null
+    };
+  }
+  return null;
+}
+
+// ✅ Streamwish
+async function extractStreamwish(url, headers) {
+  const res = await fetchv2(url, headers);
+  const html = await res.text();
+  const file = html.match(/sources:\s*\[\s*\{\s*file:\s*["']([^"']+)["']/i)?.[1];
+  if (file) {
+    return {
+      title: 'Streamwish',
+      streamUrl: file,
+      type: file.includes('.m3u8') ? 'hls' : 'mp4',
+      headers,
+      subtitles: null
+    };
+  }
+  return null;
+}
+
+// ✅ YourUpload
+async function extractYourUpload(url, headers) {
+  const res = await fetchv2(url, headers);
+  const html = await res.text();
+  const file = html.match(/<source\s+src=["']([^"']+\.mp4[^"']*)["']/i)?.[1];
+  if (file) {
+    return {
+      title: 'YourUpload',
+      streamUrl: file,
+      type: 'mp4',
+      headers,
+      subtitles: null
+    };
+  }
+  return null;
 }
 
 // ✅ دالة fetch v2
