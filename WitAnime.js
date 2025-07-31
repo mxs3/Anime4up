@@ -177,20 +177,44 @@ async function extractStreamUrl(html) {
 }
 
 // ✅ Videa
-async function extractVidea(url, headers) {
-  const res = await fetchv2(url, headers);
-  const html = await res.text();
-  const m3u8 = html.match(/https:\/\/[^"']+\.m3u8[^"']*/i)?.[0];
-  if (m3u8) {
-    return {
-      title: 'Videa',
-      streamUrl: m3u8,
-      type: 'hls',
-      headers,
-      subtitles: null
-    };
+async function extractVidea(url, headers = {}) {
+  try {
+    const res = await fetchv2(url, headers, 'GET');
+    const html = await res.text();
+
+    const sources = [];
+
+    // ✅ 1. استخراج كل روابط MP4/generics formats:
+    const mp4Matches = [...html.matchAll(/["']file["']\s*:\s*["'](https?:\/\/[^"']+\.(?:mp4|m3u8)[^"']*)["']/gi)];
+    for (const match of mp4Matches) {
+      const streamUrl = match[1];
+      const isHLS = /\.m3u8/i.test(streamUrl);
+      sources.push({
+        title: isHLS ? 'HLS' : 'MP4',
+        streamUrl,
+        type: isHLS ? 'hls' : 'mp4',
+        quality: streamUrl.includes('720') ? '720p' : streamUrl.includes('1080') ? '1080p' : 'SD',
+        headers
+      });
+    }
+
+    // ✅ 2. fallback: مباشرة m3u8 واضح في الصفحة
+    const fallback = html.match(/(https?:\/\/[^\s"'<>]+\.m3u8[^\s"'<>]*)/i)?.[1];
+    if (fallback && !sources.find(s => s.streamUrl === fallback)) {
+      sources.push({
+        title: 'Fallback HLS',
+        streamUrl: fallback,
+        type: 'hls',
+        quality: 'Auto',
+        headers
+      });
+    }
+
+    return sources[0] ? sources[0] : null;
+  } catch (err) {
+    console.error("❌ Videa extractor failed:", err);
+    return null;
   }
-  return null;
 }
 
 // ✅ Dailymotion
