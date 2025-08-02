@@ -129,100 +129,19 @@ async function extractEpisodes(url) {
   }
 }
 
-async function extractStreamUrl(html, episodeUrl) {
+async function extractStreamUrl(url) {
   if (!_0xCheck()) return 'https://files.catbox.moe/avolvc.mp4';
 
-  const decodeHTMLEntities = (text) => {
-    text = text.replace(/&#(\d+);/g, (_, dec) => String.fromCharCode(dec));
-    const entities = { '&quot;': '"', '&amp;': '&', '&apos;': "'", '&lt;': '<', '&gt;': '>' };
-    for (const entity in entities) {
-      text = text.replace(new RegExp(entity, 'g'), entities[entity]);
-    }
-    return text;
-  };
-
-  const deobfuscate = (html) => {
-    const obfuscatedScript = html.match(/<script[^>]*>\s*(eval\(function\(p,a,c,k,e,d.*?\)[\s\S]*?)<\/script>/);
-    if (!obfuscatedScript) return null;
-    return unpack(obfuscatedScript[1]);
-  };
-
-  class Unbaser {
-    constructor(base) {
-      this.ALPHABET = {
-        62: "0123456789abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ",
-        95: "' !\"#$%&'()*+,-./0123456789:;<=>?@ABCDEFGHIJKLMNOPQRSTUVWXYZ[\\]^_`abcdefghijklmnopqrstuvwxyz{|}~'",
-      };
-      this.dictionary = {};
-      this.base = base;
-      if (36 < base && base < 62) {
-        this.ALPHABET[base] = this.ALPHABET[base] || this.ALPHABET[62].substr(0, base);
-      }
-      if (2 <= base && base <= 36) {
-        this.unbase = (value) => parseInt(value, base);
-      } else {
-        [...this.ALPHABET[base]].forEach((cipher, index) => {
-          this.dictionary[cipher] = index;
-        });
-        this.unbase = this._dictunbaser;
-      }
-    }
-    _dictunbaser(value) {
-      return [...value].reverse().reduce((acc, cipher, index) =>
-        acc + (Math.pow(this.base, index) * this.dictionary[cipher]), 0);
-    }
-  }
-
-  const unpack = (source) => {
-    const _filterargs = (source) => {
-      const juicers = [
-        /}$begin:math:text$'(.*)', *(\\d+|\\[\\]), *(\\d+), *'(.*)'\\.split\\('\\|'$end:math:text$, *(\d+), *(.*)\)\)/,
-        /}$begin:math:text$'(.*)', *(\\d+|\\[\\]), *(\\d+), *'(.*)'\\.split\\('\\|'$end:math:text$/,
-      ];
-      for (const juicer of juicers) {
-        const args = juicer.exec(source);
-        if (args) {
-          return {
-            payload: args[1],
-            symtab: args[4].split("|"),
-            radix: parseInt(args[2]),
-            count: parseInt(args[3]),
-          };
-        }
-      }
-      throw new Error("Could not parse p.a.c.k.e.r");
-    };
-    const _replacestrings = (source) => source;
-
-    const { payload, symtab, radix, count } = _filterargs(source);
-    if (count != symtab.length) throw new Error("Malformed p.a.c.k.e.r symtab");
-
-    const unbase = new Unbaser(radix);
-    const lookup = (match) => symtab[unbase.unbase(match)] || match;
-    return _replacestrings(payload.replace(/\b\w+\b/g, lookup));
-  };
-
-  const soraFetch = async (url, options = { headers: {}, method: 'GET', body: null }) => {
-    try {
-      return await fetchv2(url, options.headers ?? {}, options.method ?? 'GET', options.body ?? null);
-    } catch {
-      try {
-        const res = await fetch(url, options);
-        return await res.text();
-      } catch {
-        return null;
-      }
-    }
-  };
-
   const servers = [...html.matchAll(
-    /<a[^>]+data-server-id=["']?(\d+)["']?[^>]+onclick=["']loadIframe$begin:math:text$this$end:math:text$["'][^>]*>\s*<span[^>]*class=["']ser["']>([^<]+)<\/span>/gi
+    /<a[^>]+data-server-id=["']?(\d+)["']?[^>]+onclick=["']loadIframe\(this\)["'][^>]*>\s*<span[^>]*class=["']ser["']>([^<]+)<\/span>/gi
   )].map(m => ({
     id: m[1],
     name: m[2].trim()
   })).filter(s => !/yonaplay/i.test(s.name));
 
   const baseUrl = episodeUrl.split('/episode')[0];
+  const working = [];
+
   for (const server of servers) {
     const iframeApi = `${baseUrl}/ajax/server.php?id=${server.id}`;
     const iframeHtml = await soraFetch(iframeApi);
@@ -234,24 +153,124 @@ async function extractStreamUrl(html, episodeUrl) {
     let finalLink = decodeHTMLEntities(iframeSrcMatch[1]);
     if (!finalLink.startsWith('http')) finalLink = 'https:' + finalLink;
 
-    // معالجة iframe داخلي
-    const embedHtml = await soraFetch(finalLink);
-    if (!embedHtml) continue;
-
-    // لو فيه فيديو مباشر
-    const directVideo = embedHtml.match(/<video[^>]+src=["']([^"']+)["']/i);
-    if (directVideo) return directVideo[1];
-
-    // لو مشفر eval
-    const unpacked = deobfuscate(embedHtml);
-    if (unpacked && unpacked.includes("m3u8") || unpacked.includes("mp4")) {
-      const videoUrlMatch = unpacked.match(/(https?:\/\/[^\s"'\\]+(?:\.m3u8|\.mp4))/);
-      if (videoUrlMatch) return videoUrlMatch[1];
-    }
-
-    // لو السيرفر معروف نقدر نعمل استخراج خاص لاحقًا هنا
-
+    working.push({ name: server.name, link: finalLink });
   }
 
-  return 'https://files.catbox.moe/avolvc.mp4'; // fallback
+  if (working.length === 0) return 'https://files.catbox.moe/avolvc.mp4';
+  const selected = await sora.prompt(`اختر السيرفر:`, working.map(x => x.name));
+  const chosen = working.find(x => x.name === selected);
+  if (!chosen) return 'https://files.catbox.moe/avolvc.mp4';
+
+  const embedHtml = await soraFetch(chosen.link);
+  if (!embedHtml) return 'https://files.catbox.moe/avolvc.mp4';
+
+  const direct = embedHtml.match(/<video[^>]+src=["']([^"']+)["']/i);
+  if (direct) return direct[1];
+
+  const unpacked = deobfuscate(embedHtml);
+  const searchText = unpacked || embedHtml;
+
+  const extractors = [
+    { name: /ok\.ru/, rx: /"(?:video|content)Url"[^:]*:\s*"([^"]+)"/ },
+    { name: /dailymotion/, rx: /"quality":"auto","url":"([^"]+)"/ },
+    { name: /streamwish/, rx: /sources:\s*\[\s*{file:\s*"(https:[^"]+)"/ },
+    { name: /videa/, rx: /"src":"([^"]+videa\.hu[^"]+)"/ },
+    { name: /yourupload/, rx: /sources:\s*\[\s*{file:\s*"(https:[^"]+)"/ }
+  ];
+
+  for (const ext of extractors) {
+    if (ext.name.test(chosen.link)) {
+      const m = searchText.match(ext.rx);
+      if (m) return m[1];
+    }
+  }
+
+  const fallbackMatch = searchText.match(/(https?:\/\/[^\s"'\\]+(?:\.m3u8|\.mp4))/);
+  if (fallbackMatch) return fallbackMatch[1];
+
+  return 'https://files.catbox.moe/avolvc.mp4';
+}
+
+/* 🔧 Helper Functions (placed at bottom as requested) */
+
+async function soraFetch(url, options = { headers: {}, method: 'GET', body: null }) {
+  try {
+    return await fetchv2(url, options.headers ?? {}, options.method ?? 'GET', options.body ?? null);
+  } catch {
+    try {
+      const res = await fetch(url, options);
+      return await res.text();
+    } catch {
+      return null;
+    }
+  }
+}
+
+function decodeHTMLEntities(text) {
+  text = text.replace(/&#(\d+);/g, (_, dec) => String.fromCharCode(dec));
+  const entities = { '&quot;': '"', '&amp;': '&', '&apos;': "'", '&lt;': '<', '&gt;': '>' };
+  for (const entity in entities) {
+    text = text.replace(new RegExp(entity, 'g'), entities[entity]);
+  }
+  return text;
+}
+
+function deobfuscate(html) {
+  const obfuscatedScript = html.match(/<script[^>]*>\s*(eval\(function\(p,a,c,k,e,d.*?\)[\s\S]*?)<\/script>/);
+  if (!obfuscatedScript) return null;
+  return unpack(obfuscatedScript[1]);
+}
+
+function unpack(source) {
+  const { payload, symtab, radix, count } = _filterargs(source);
+  if (count !== symtab.length) throw new Error("Malformed p.a.c.k.e.r symtab");
+
+  const unbase = new Unbaser(radix);
+  const lookup = (match) => symtab[unbase.unbase(match)] || match;
+  return payload.replace(/\b\w+\b/g, lookup);
+}
+
+function _filterargs(source) {
+  const juicers = [
+    /}\('(.*)', *(\d+|\[\]), *(\d+), *'(.*)'\.split\('\|'\), *(\d+), *(.*)\)\)/,
+    /}\('(.*)', *(\d+|\[\]), *(\d+), *'(.*)'\.split\('\|'\)/,
+  ];
+  for (const juicer of juicers) {
+    const args = juicer.exec(source);
+    if (args) {
+      return {
+        payload: args[1],
+        symtab: args[4].split("|"),
+        radix: parseInt(args[2]),
+        count: parseInt(args[3]),
+      };
+    }
+  }
+  throw new Error("Could not parse p.a.c.k.e.r");
+}
+
+class Unbaser {
+  constructor(base) {
+    this.ALPHABET = {
+      62: "0123456789abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ",
+      95: "' !\"#$%&'()*+,-./0123456789:;<=>?@ABCDEFGHIJKLMNOPQRSTUVWXYZ[\\]^_`abcdefghijklmnopqrstuvwxyz{|}~'",
+    };
+    this.dictionary = {};
+    this.base = base;
+    if (36 < base && base < 62) {
+      this.ALPHABET[base] = this.ALPHABET[base] || this.ALPHABET[62].substr(0, base);
+    }
+    if (2 <= base && base <= 36) {
+      this.unbase = (value) => parseInt(value, base);
+    } else {
+      [...this.ALPHABET[base]].forEach((cipher, index) => {
+        this.dictionary[cipher] = index;
+      });
+      this.unbase = this._dictunbaser;
+    }
+  }
+  _dictunbaser(value) {
+    return [...value].reverse().reduce((acc, cipher, index) =>
+      acc + (Math.pow(this.base, index) * this.dictionary[cipher]), 0);
+  }
 }
