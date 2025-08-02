@@ -131,77 +131,44 @@ async function extractEpisodes(url) {
 
 async function extractStreamUrl(html) {
   const servers = [...html.matchAll(
-    /data-id=["'](\d+)["'][^>]*data-src=["']([^"']+)["'][^>]*>\s*<span[^>]*>([^<]+)<\/span>/gi
+    /<a[^>]+data-server-id=["'](\d+)["'][^>]*onclick=["']loadIframe\(this\)["'][^>]*>[\s\S]*?<span[^>]*>([^<]+)<\/span>/gi
   )].map(m => ({
     id: m[1],
-    url: m[2].startsWith('http') ? m[2] : 'https:' + m[2],
-    name: m[3].trim().toLowerCase()
-  })).filter(s =>
-    !s.name.includes('yonaplay') &&
-    !s.url.includes('yonaplay.org')
-  );
+    name: m[2].trim().toLowerCase()
+  }));
 
-  if (!servers.length) throw new Error('No valid servers');
+  if (!servers.length) throw new Error('❌ لا يوجد سيرفرات متاحة');
 
   const results = [];
 
   for (const srv of servers) {
     try {
-      const res = await fetchv2(srv.url, {
-        'User-Agent': 'Mozilla/5.0',
-        'Referer': 'https://witanime.world/'
-      });
-      const page = await res.text();
-
-      // <video src="">
-      const directVideo = page.match(/<video[^>]+src=["']([^"']+)["']/i);
-      if (directVideo) {
-        results.push({ name: srv.name, url: directVideo[1] });
-        continue;
-      }
-
-      // <source src="...mp4">
-      const mp4Source = page.match(/<source[^>]+src=["']([^"']+\.mp4)["']/i);
-      if (mp4Source) {
-        results.push({ name: srv.name, url: mp4Source[1] });
-        continue;
-      }
-
-      // m3u8 مباشر
-      const hlsMatch = page.match(/https?:\/\/[^\s"'<>]+\.m3u8/);
-      if (hlsMatch) {
-        results.push({ name: srv.name, url: hlsMatch[0] });
-        continue;
-      }
-
-      // mp4 مباشر
-      const mp4Match = page.match(/https?:\/\/[^\s"'<>]+\.mp4/);
-      if (mp4Match) {
-        results.push({ name: srv.name, url: mp4Match[0] });
-        continue;
-      }
-
-      // eval + unpack + m3u8
-      const unpacked = tryUnpack(page);
-      const unpackHLS = unpacked.match(/https?:\/\/[^\s"'<>]+\.m3u8/);
-      if (unpackHLS) {
-        results.push({ name: srv.name, url: unpackHLS[0] });
-        continue;
-      }
-
-      const unpackMP4 = unpacked.match(/https?:\/\/[^\s"'<>]+\.mp4/);
-      if (unpackMP4) {
-        results.push({ name: srv.name, url: unpackMP4[0] });
-        continue;
-      }
-
-      // videaExtractor
-      if (srv.name.includes('videa')) {
-        const videa = await videaExtractor(srv.url);
-        if (videa?.url) {
-          results.push({ name: srv.name, url: videa.url });
-          continue;
+      const frameRes = await fetchv2(`https://witanime.world/wp-admin/admin-ajax.php`, {
+        method: 'POST',
+        body: `action=doo_player_ajax&post=${srv.id}&nume=1&type=video`,
+        headers: {
+          'Content-Type': 'application/x-www-form-urlencoded; charset=UTF-8',
+          'Referer': 'https://witanime.world/',
+          'User-Agent': 'Mozilla/5.0'
         }
+      });
+
+      const frameHtml = await frameRes.text();
+      const iframeUrl = frameHtml.match(/src=["']([^"']+)["']/)?.[1];
+      if (!iframeUrl) continue;
+
+      let extracted;
+
+      if (srv.name.includes('streamwish')) {
+        extracted = await streamwishExtractor(iframeUrl);
+      } else if (srv.name.includes('videa')) {
+        extracted = await videaExtractor(iframeUrl);
+      } else if (srv.name.includes('dailymotion')) {
+        extracted = await dailymotionExtractor(iframeUrl);
+      }
+
+      if (extracted?.url) {
+        results.push({ name: srv.name, url: extracted.url });
       }
 
     } catch (e) {
@@ -209,21 +176,64 @@ async function extractStreamUrl(html) {
     }
   }
 
-  if (!results.length) throw new Error('فشل كامل في استخراج الروابط');
+  if (!results.length) throw new Error('❌ لم يتم استخراج أي روابط فيديو');
 
   if (results.length === 1) return results[0].url;
 
   const chosen = await showQuickMenu(
     results.map(r => ({ title: r.name, value: r.url })),
-    "اختر سيرفر"
+    "اختر سيرفر للمشاهدة"
   );
 
-  if (!chosen) throw new Error('لم يتم اختيار سيرفر');
-
+  if (!chosen) throw new Error('❌ لم يتم اختيار سيرفر');
   return chosen;
 }
 
+async function streamwishExtractor(embedUrl) {
+  try {
+    const res = await fetchv2(embedUrl, {
+      'User-Agent': 'Mozilla/5.0',
+      'Referer': embedUrl
+    });
+    const html = await res.text();
+
+    const fileMatch = html.match(/sources:\s*\[\s*\{\s*file:\s*["']([^"']+)["']/);
+    if (fileMatch) {
+      return { server: 'streamwish', url: fileMatch[1] };
+    }
+
+    const mp4Fallback = html.match(/https?:\/\/[^\s"']+\.mp4/);
+    if (mp4Fallback) {
+      return { server: 'streamwish', url: mp4Fallback[0] };
+    }
+
+  } catch (err) {
+    console.log('❌ Streamwish Error:', err);
+  }
+}
+
 async function videaExtractor(embedUrl) {
+  try {
+    const vcode = embedUrl.match(/[?&]v=([a-zA-Z0-9]+)/)?.[1];
+    if (!vcode) return;
+
+    const xmlRes = await fetchv2(`https://videa.hu/player/xml?v=${vcode}`, {
+      'User-Agent': 'Mozilla/5.0',
+      'Referer': embedUrl
+    });
+
+    const xml = await xmlRes.text();
+    const videoUrl = xml.match(/<file[^>]*>([^<]+)<\/file>/)?.[1];
+    if (videoUrl) {
+      return { server: 'videa', url: videoUrl };
+    }
+
+  } catch (err) {
+    console.log('❌ Videa extractor error:', err);
+  }
+}
+
+async function dailymotionExtractor(embedUrl) {
   try {
     const res = await fetchv2(embedUrl, {
       'User-Agent': 'Mozilla/5.0',
@@ -231,30 +241,23 @@ async function videaExtractor(embedUrl) {
     });
     const html = await res.text();
 
-    const vcode = html.match(/var\s+vcode\s*=\s*["']([^"']+)["']/)?.[1];
-    if (!vcode) return;
+    const jsonMatch = html.match(/var\s*__PLAYER_CONFIG__\s*=\s*({.+?});<\/script>/);
+    if (!jsonMatch) return;
 
-    const xmlRes = await fetchv2(`https://videa.hu/player/xml?v=${vcode}`, {
-      'User-Agent': 'Mozilla/5.0',
-      'Referer': embedUrl
-    });
-    const xml = await xmlRes.text();
+    const json = JSON.parse(jsonMatch[1]);
+    const qualities = json.metadata?.qualities;
 
-    const file = xml.match(/<file[^>]*>([^<]+)<\/file>/)?.[1];
-    if (file) return { url: file };
+    const streams = Object.values(qualities)
+      .flat()
+      .filter(v => v.type === 'application/x-mpegURL' || v.type === 'video/mp4');
+
+    if (streams.length) {
+      const best = streams.find(v => v.type === 'application/x-mpegURL') || streams[0];
+      return { server: 'dailymotion', url: best.url };
+    }
 
   } catch (err) {
-    console.log('❌ Videa extractor error:', err);
-  }
-}
-
-function tryUnpack(html) {
-  const evalMatch = html.match(/eval\(function\(p,a,c,k,e,d[\s\S]+?\)\)/);
-  if (!evalMatch) return html;
-  try {
-    return unpack(evalMatch[0]);
-  } catch {
-    return html;
+    console.log('❌ Dailymotion extractor error:', err);
   }
 }
 
