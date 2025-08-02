@@ -130,49 +130,35 @@ async function extractEpisodes(url) {
 }
 
 async function extractStreamUrl(html) {
-  const servers = [...html.matchAll(
-    /<a[^>]+data-server-id=["'](\d+)["'][^>]*onclick=["']loadIframe\(this\)["'][^>]*>[\s\S]*?<span[^>]*>([^<]+)<\/span>/gi
-  )].map(m => ({
-    id: m[1],
-    name: m[2].trim().toLowerCase()
-  }));
+  const iframeMatches = [...html.matchAll(
+    /<a[^>]+onclick=["']loadIframe\(this\)["'][^>]+data-src=["']([^"']+)["'][^>]*>\s*<span[^>]*>([^<]+)<\/span>/gi
+  )];
 
-  if (!servers.length) throw new Error('❌ لا يوجد سيرفرات متاحة');
+  if (!iframeMatches.length) throw new Error("❌ لا يوجد سيرفرات متاحة");
 
   const results = [];
 
-  for (const srv of servers) {
+  for (const match of iframeMatches) {
+    const iframeUrl = match[1].startsWith('http') ? match[1] : 'https:' + match[1];
+    const serverName = match[2].trim().toLowerCase();
+
     try {
-      const frameRes = await fetchv2(`https://witanime.world/wp-admin/admin-ajax.php`, {
-        method: 'POST',
-        body: `action=doo_player_ajax&post=${srv.id}&nume=1&type=video`,
-        headers: {
-          'Content-Type': 'application/x-www-form-urlencoded; charset=UTF-8',
-          'Referer': 'https://witanime.world/',
-          'User-Agent': 'Mozilla/5.0'
-        }
-      });
-
-      const frameHtml = await frameRes.text();
-      const iframeUrl = frameHtml.match(/src=["']([^"']+)["']/)?.[1];
-      if (!iframeUrl) continue;
-
       let extracted;
 
-      if (srv.name.includes('streamwish')) {
+      if (serverName.includes("streamwish")) {
         extracted = await streamwishExtractor(iframeUrl);
-      } else if (srv.name.includes('videa')) {
+      } else if (serverName.includes("videa")) {
         extracted = await videaExtractor(iframeUrl);
-      } else if (srv.name.includes('dailymotion')) {
+      } else if (serverName.includes("dailymotion")) {
         extracted = await dailymotionExtractor(iframeUrl);
       }
 
       if (extracted?.url) {
-        results.push({ name: srv.name, url: extracted.url });
+        results.push({ name: serverName, url: extracted.url });
       }
 
     } catch (e) {
-      console.log(`❌ ${srv.name} failed:`, e);
+      console.log(`❌ خطأ في استخراج ${serverName}:`, e);
     }
   }
 
