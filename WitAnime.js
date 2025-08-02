@@ -130,56 +130,68 @@ async function extractEpisodes(url) {
 }
 
 async function extractStreamUrl(html) {
-    if (!_0xCheck()) return 'https://files.catbox.moe/avolvc.mp4';
+  const fallback = 'https://files.catbox.moe/avolvc.mp4';
 
-    const multiStreams = [];
+  const servers = [...html.matchAll(
+    /data-id=["'](\d+)["'][^>]*data-src=["']([^"']+)["'][^>]*>\s*<span[^>]*>([^<]+)<\/span>/gi
+  )].map(m => ({
+    id: m[1],
+    url: m[2].startsWith('http') ? m[2] : 'https:' + m[2],
+    name: m[3].trim().toLowerCase()
+  }))
+    .filter(s =>
+      !s.name.includes('yonaplay') &&
+      !s.url.includes('yonaplay.org')
+    );
 
-    const headers = {
-        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/115.0.0.0 Safari/537.36",
-        "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
-        "Referer": "https://witanime.com"
-    };
+  if (!servers.length) return fallback;
 
-    const serverMatches = [...html.matchAll(
-        /<a[^>]+data-server-id=["']?(\d+)["']?[^>]*>\s*<span[^>]*>([^<]+)<\/span>/gi
-    )];
+  const results = [];
 
-    for (const [, , serverNameRaw] of serverMatches) {
-        const title = serverNameRaw.toLowerCase().trim();
-        const iframeMatch = html.match(/<iframe[^>]+src=["']([^"']+)["']/i);
-        if (!iframeMatch) continue;
+  for (const srv of servers) {
+    try {
+      const res = await fetchv2(srv.url, {
+        'User-Agent': 'Mozilla/5.0',
+        'Referer': 'https://witanime.world/'
+      });
+      const pageHtml = await res.text();
 
-        let embedUrl = iframeMatch[1];
-        if (embedUrl.startsWith('//')) embedUrl = 'https:' + embedUrl;
+      // مباشر من <video src="">
+      const vidMatch = pageHtml.match(/<video[^>]+src=["']([^"']+)["']/i);
+      if (vidMatch && vidMatch[1]) {
+        results.push({
+          name: srv.name,
+          url: vidMatch[1]
+        });
+        continue;
+      }
 
-        let stream = null;
+      // محاولة من eval مشفر
+      const unpacked = tryUnpack(pageHtml);
+      const m3u8Match = unpacked.match(/https?:\/\/[^"']+\.m3u8/);
+      if (m3u8Match) {
+        results.push({
+          name: srv.name,
+          url: m3u8Match[0]
+        });
+        continue;
+      }
 
-        if (title.includes("streamwish")) {
-            stream = await streamwishExtractor(embedUrl, headers);
-        } else if (title.includes("videa")) {
-            stream = await videaExtractor(embedUrl, headers);
-        } else if (title.includes("dailymotion")) {
-            stream = await dailymotionExtractor(embedUrl, headers);
-        } else if (title.includes("yourupload")) {
-            stream = await yourUploadExtractor(embedUrl, headers);
-        } else if (title.includes("ok.ru")) {
-            stream = await okruExtractor(embedUrl, headers);
-        } else if (title.includes("yonaplay")) {
-            stream = await yonaplayExtractor(embedUrl, headers);
-        }
-
-        if (stream) {
-            multiStreams.push({
-                title: serverNameRaw,
-                ...stream
-            });
-        }
+    } catch (err) {
+      console.log(`❌ Failed: ${srv.name} - ${srv.url}`);
     }
+  }
 
-    if (multiStreams.length === 0) return 'https://files.catbox.moe/avolvc.mp4';
-    if (multiStreams.length === 1) return multiStreams[0].streamUrl;
+  if (!results.length) return fallback;
+  if (results.length === 1) return results[0].url;
 
-    return multiStreams;
+  // ✅ اختار من بين السيرفرات
+  const choice = await showQuickMenu(results.map(e => ({
+    title: e.name,
+    value: e.url
+  })), 'اختر السيرفر');
+
+  return choice || fallback;
 }
 
 // -------------- Extractor Helpers --------------
