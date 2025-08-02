@@ -129,131 +129,131 @@ async function extractEpisodes(url) {
   }
 }
 
-async function extractStreamUrl(html) {
-  const iframeMatches = [...html.matchAll(
-    /<a[^>]+onclick=["']loadIframe\(this\)["'][^>]+data-src=["']([^"']+)["'][^>]*>\s*<span[^>]*>([^<]+)<\/span>/gi
-  )];
+async function extractStreamUrl(html, episodeUrl) {
+  if (!_0xCheck()) return 'https://files.catbox.moe/avolvc.mp4';
 
-  if (!iframeMatches.length) throw new Error("❌ لا يوجد سيرفرات متاحة");
+  const decodeHTMLEntities = (text) => {
+    text = text.replace(/&#(\d+);/g, (_, dec) => String.fromCharCode(dec));
+    const entities = { '&quot;': '"', '&amp;': '&', '&apos;': "'", '&lt;': '<', '&gt;': '>' };
+    for (const entity in entities) {
+      text = text.replace(new RegExp(entity, 'g'), entities[entity]);
+    }
+    return text;
+  };
 
-  const results = [];
+  const deobfuscate = (html) => {
+    const obfuscatedScript = html.match(/<script[^>]*>\s*(eval\(function\(p,a,c,k,e,d.*?\)[\s\S]*?)<\/script>/);
+    if (!obfuscatedScript) return null;
+    return unpack(obfuscatedScript[1]);
+  };
 
-  for (const match of iframeMatches) {
-    const iframeUrl = match[1].startsWith('http') ? match[1] : 'https:' + match[1];
-    const serverName = match[2].trim().toLowerCase();
+  class Unbaser {
+    constructor(base) {
+      this.ALPHABET = {
+        62: "0123456789abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ",
+        95: "' !\"#$%&'()*+,-./0123456789:;<=>?@ABCDEFGHIJKLMNOPQRSTUVWXYZ[\\]^_`abcdefghijklmnopqrstuvwxyz{|}~'",
+      };
+      this.dictionary = {};
+      this.base = base;
+      if (36 < base && base < 62) {
+        this.ALPHABET[base] = this.ALPHABET[base] || this.ALPHABET[62].substr(0, base);
+      }
+      if (2 <= base && base <= 36) {
+        this.unbase = (value) => parseInt(value, base);
+      } else {
+        [...this.ALPHABET[base]].forEach((cipher, index) => {
+          this.dictionary[cipher] = index;
+        });
+        this.unbase = this._dictunbaser;
+      }
+    }
+    _dictunbaser(value) {
+      return [...value].reverse().reduce((acc, cipher, index) =>
+        acc + (Math.pow(this.base, index) * this.dictionary[cipher]), 0);
+    }
+  }
 
+  const unpack = (source) => {
+    const _filterargs = (source) => {
+      const juicers = [
+        /}$begin:math:text$'(.*)', *(\\d+|\\[\\]), *(\\d+), *'(.*)'\\.split\\('\\|'$end:math:text$, *(\d+), *(.*)\)\)/,
+        /}$begin:math:text$'(.*)', *(\\d+|\\[\\]), *(\\d+), *'(.*)'\\.split\\('\\|'$end:math:text$/,
+      ];
+      for (const juicer of juicers) {
+        const args = juicer.exec(source);
+        if (args) {
+          return {
+            payload: args[1],
+            symtab: args[4].split("|"),
+            radix: parseInt(args[2]),
+            count: parseInt(args[3]),
+          };
+        }
+      }
+      throw new Error("Could not parse p.a.c.k.e.r");
+    };
+    const _replacestrings = (source) => source;
+
+    const { payload, symtab, radix, count } = _filterargs(source);
+    if (count != symtab.length) throw new Error("Malformed p.a.c.k.e.r symtab");
+
+    const unbase = new Unbaser(radix);
+    const lookup = (match) => symtab[unbase.unbase(match)] || match;
+    return _replacestrings(payload.replace(/\b\w+\b/g, lookup));
+  };
+
+  const soraFetch = async (url, options = { headers: {}, method: 'GET', body: null }) => {
     try {
-      let extracted;
-
-      if (serverName.includes("streamwish")) {
-        extracted = await streamwishExtractor(iframeUrl);
-      } else if (serverName.includes("videa")) {
-        extracted = await videaExtractor(iframeUrl);
-      } else if (serverName.includes("dailymotion")) {
-        extracted = await dailymotionExtractor(iframeUrl);
+      return await fetchv2(url, options.headers ?? {}, options.method ?? 'GET', options.body ?? null);
+    } catch {
+      try {
+        const res = await fetch(url, options);
+        return await res.text();
+      } catch {
+        return null;
       }
-
-      if (extracted?.url) {
-        results.push({ name: serverName, url: extracted.url });
-      }
-
-    } catch (e) {
-      console.log(`❌ خطأ في استخراج ${serverName}:`, e);
     }
-  }
+  };
 
-  if (!results.length) throw new Error('❌ لم يتم استخراج أي روابط فيديو');
+  const servers = [...html.matchAll(
+    /<a[^>]+data-server-id=["']?(\d+)["']?[^>]+onclick=["']loadIframe$begin:math:text$this$end:math:text$["'][^>]*>\s*<span[^>]*class=["']ser["']>([^<]+)<\/span>/gi
+  )].map(m => ({
+    id: m[1],
+    name: m[2].trim()
+  })).filter(s => !/yonaplay/i.test(s.name));
 
-  if (results.length === 1) return results[0].url;
+  const baseUrl = episodeUrl.split('/episode')[0];
+  for (const server of servers) {
+    const iframeApi = `${baseUrl}/ajax/server.php?id=${server.id}`;
+    const iframeHtml = await soraFetch(iframeApi);
+    if (!iframeHtml) continue;
 
-  const chosen = await showQuickMenu(
-    results.map(r => ({ title: r.name, value: r.url })),
-    "اختر سيرفر للمشاهدة"
-  );
+    const iframeSrcMatch = iframeHtml.match(/<iframe[^>]+src=["']([^"']+)["']/i);
+    if (!iframeSrcMatch) continue;
 
-  if (!chosen) throw new Error('❌ لم يتم اختيار سيرفر');
-  return chosen;
-}
+    let finalLink = decodeHTMLEntities(iframeSrcMatch[1]);
+    if (!finalLink.startsWith('http')) finalLink = 'https:' + finalLink;
 
-async function streamwishExtractor(embedUrl) {
-  try {
-    const res = await fetchv2(embedUrl, {
-      'User-Agent': 'Mozilla/5.0',
-      'Referer': embedUrl
-    });
-    const html = await res.text();
+    // معالجة iframe داخلي
+    const embedHtml = await soraFetch(finalLink);
+    if (!embedHtml) continue;
 
-    const fileMatch = html.match(/sources:\s*\[\s*\{\s*file:\s*["']([^"']+)["']/);
-    if (fileMatch) {
-      return { server: 'streamwish', url: fileMatch[1] };
-    }
+    // لو فيه فيديو مباشر
+    const directVideo = embedHtml.match(/<video[^>]+src=["']([^"']+)["']/i);
+    if (directVideo) return directVideo[1];
 
-    const mp4Fallback = html.match(/https?:\/\/[^\s"']+\.mp4/);
-    if (mp4Fallback) {
-      return { server: 'streamwish', url: mp4Fallback[0] };
+    // لو مشفر eval
+    const unpacked = deobfuscate(embedHtml);
+    if (unpacked && unpacked.includes("m3u8") || unpacked.includes("mp4")) {
+      const videoUrlMatch = unpacked.match(/(https?:\/\/[^\s"'\\]+(?:\.m3u8|\.mp4))/);
+      if (videoUrlMatch) return videoUrlMatch[1];
     }
 
-  } catch (err) {
-    console.log('❌ Streamwish Error:', err);
+    // لو السيرفر معروف نقدر نعمل استخراج خاص لاحقًا هنا
+
   }
-}
 
-async function videaExtractor(embedUrl) {
-  try {
-    const vcode = embedUrl.match(/[?&]v=([a-zA-Z0-9]+)/)?.[1];
-    if (!vcode) return;
-
-    const xmlRes = await fetchv2(`https://videa.hu/player/xml?v=${vcode}`, {
-      'User-Agent': 'Mozilla/5.0',
-      'Referer': embedUrl
-    });
-
-    const xml = await xmlRes.text();
-    const videoUrl = xml.match(/<file[^>]*>([^<]+)<\/file>/)?.[1];
-    if (videoUrl) {
-      return { server: 'videa', url: videoUrl };
-    }
-
-  } catch (err) {
-    console.log('❌ Videa extractor error:', err);
-  }
-}
-
-async function dailymotionExtractor(embedUrl) {
-  try {
-    const res = await fetchv2(embedUrl, {
-      'User-Agent': 'Mozilla/5.0',
-      'Referer': 'https://witanime.world/'
-    });
-    const html = await res.text();
-
-    const jsonMatch = html.match(/var\s*__PLAYER_CONFIG__\s*=\s*({.+?});<\/script>/);
-    if (!jsonMatch) return;
-
-    const json = JSON.parse(jsonMatch[1]);
-    const qualities = json.metadata?.qualities;
-
-    const streams = Object.values(qualities)
-      .flat()
-      .filter(v => v.type === 'application/x-mpegURL' || v.type === 'video/mp4');
-
-    if (streams.length) {
-      const best = streams.find(v => v.type === 'application/x-mpegURL') || streams[0];
-      return { server: 'dailymotion', url: best.url };
-    }
-
-  } catch (err) {
-    console.log('❌ Dailymotion extractor error:', err);
-  }
-}
-
-// ✅ دالة fetch v2
-async function soraFetch(url, options = { headers: {}, method: 'GET', body: null }) {
-  try {
-    return await fetchv2(url, options.headers ?? {}, options.method ?? 'GET', options.body ?? null);
-  } catch {
-    return { text: async () => '', json: async () => ({}) };
-  }
+  return 'https://files.catbox.moe/avolvc.mp4'; // fallback
 }
 
 // ✅ دالة التحقق
