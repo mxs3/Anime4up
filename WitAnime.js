@@ -132,19 +132,21 @@ async function extractEpisodes(url) {
 async function extractStreamUrl(html) {
   const fallback = 'https://files.catbox.moe/avolvc.mp4';
 
-  const servers = [...html.matchAll(
-    /data-id=["'](\d+)["'][^>]*data-src=["']([^"']+)["'][^>]*>\s*<span[^>]*>([^<]+)<\/span>/gi
-  )].map(m => ({
-    id: m[1],
-    url: m[2].startsWith('http') ? m[2] : 'https:' + m[2],
-    name: m[3].trim().toLowerCase()
-  }))
+  const serverRegex = /data-id=["'](\d+)["'][^>]*data-src=["']([^"']+)["'][^>]*>\s*<span[^>]*>([^<]+)<\/span>/gi;
+  const servers = [...html.matchAll(serverRegex)]
+    .map(m => ({
+      id: m[1],
+      url: m[2].startsWith('http') ? m[2] : 'https:' + m[2],
+      name: m[3].trim().toLowerCase()
+    }))
     .filter(s =>
       !s.name.includes('yonaplay') &&
       !s.url.includes('yonaplay.org')
     );
 
-  if (!servers.length) return fallback;
+  if (!servers.length) {
+    return fallback;
+  }
 
   const results = [];
 
@@ -154,125 +156,46 @@ async function extractStreamUrl(html) {
         'User-Agent': 'Mozilla/5.0',
         'Referer': 'https://witanime.world/'
       });
-      const pageHtml = await res.text();
 
-      // مباشر من <video src="">
-      const vidMatch = pageHtml.match(/<video[^>]+src=["']([^"']+)["']/i);
-      if (vidMatch && vidMatch[1]) {
-        results.push({
-          name: srv.name,
-          url: vidMatch[1]
-        });
+      const page = await res.text();
+
+      // <video src="">
+      const videoMatch = page.match(/<video[^>]+src=["']([^"']+)["']/i);
+      if (videoMatch && videoMatch[1]) {
+        results.push({ name: srv.name, url: videoMatch[1] });
         continue;
       }
 
-      // محاولة من eval مشفر
-      const unpacked = tryUnpack(pageHtml);
+      // eval + m3u8
+      const unpacked = tryUnpack(page);
       const m3u8Match = unpacked.match(/https?:\/\/[^"']+\.m3u8/);
       if (m3u8Match) {
-        results.push({
-          name: srv.name,
-          url: m3u8Match[0]
-        });
+        results.push({ name: srv.name, url: m3u8Match[0] });
+        continue;
+      }
+
+      // MP4 مباشر من source
+      const mp4Match = page.match(/<source[^>]+src=["']([^"']+\.mp4)["']/i);
+      if (mp4Match && mp4Match[1]) {
+        results.push({ name: srv.name, url: mp4Match[1] });
         continue;
       }
 
     } catch (err) {
-      console.log(`❌ Failed: ${srv.name} - ${srv.url}`);
+      console.log(`❌ Error with server ${srv.name}:`, err);
     }
   }
 
-  if (!results.length) return fallback;
+  if (results.length === 0) return fallback;
   if (results.length === 1) return results[0].url;
 
-  // ✅ اختار من بين السيرفرات
-  const choice = await showQuickMenu(results.map(e => ({
-    title: e.name,
-    value: e.url
-  })), 'اختر السيرفر');
+  // واجهة اختيار السيرفر
+  const chosen = await showQuickMenu(
+    results.map(r => ({ title: r.name, value: r.url })),
+    "اختر سيرفر المشاهدة"
+  );
 
-  return choice || fallback;
-}
-
-// -------------- Extractor Helpers --------------
-
-function tryUnpack(html) {
-    const evalMatch = html.match(/eval\(function\(p,a,c,k,e,d[\s\S]+?\)\)/);
-    if (!evalMatch) return html;
-    try {
-        return unpack(evalMatch[0]);
-    } catch {
-        return html;
-    }
-}
-
-async function streamwishExtractor(url, headers) {
-    const res = await fetchv2(url, headers);
-    const html = await res.text();
-    const unpacked = tryUnpack(html);
-    const match = unpacked.match(/https?:\/\/[^"']+\.m3u8/);
-    if (match) return { streamUrl: match[0], headers };
-    return null;
-}
-
-async function videaExtractor(url, headers) {
-    const res = await fetchv2(url, headers);
-    const html = await res.text();
-    const fileMatch = html.match(/sources:\s*\[\s*\{\s*file:\s*["']([^"']+)["']/i);
-    if (fileMatch) return { streamUrl: fileMatch[1], headers };
-    const unpacked = tryUnpack(html);
-    const match = unpacked.match(/https?:\/\/[^"']+\.m3u8/);
-    if (match) return { streamUrl: match[0], headers };
-    return null;
-}
-
-async function dailymotionExtractor(url, headers) {
-    const res = await fetchv2(url, headers);
-    const html = await res.text();
-    const match = html.match(/"qualities":({.*?})\s*,\s*"report"/s);
-    if (!match) return null;
-    try {
-        const json = JSON.parse(match[1]);
-        const quality = json.auto?.[0]?.url || json['720']?.[0]?.url || json['480']?.[0]?.url;
-        if (quality) return { streamUrl: quality, headers };
-    } catch {}
-    return null;
-}
-
-async function yourUploadExtractor(url, headers) {
-    const res = await fetchv2(url, headers);
-    const html = await res.text();
-    const match = html.match(/player\.src\(\{\s*type:\s*['"]video\/mp4['"],\s*src:\s*['"]([^'"]+)['"]/);
-    if (match) return { streamUrl: match[1], headers };
-    return null;
-}
-
-async function okruExtractor(url, headers) {
-    const okHeaders = {
-        ...headers,
-        "Origin": "https://ok.ru"
-    };
-    const res = await fetchv2(url, okHeaders);
-    const html = await res.text();
-    const match = html.match(/data-options="([^"]+)"/);
-    if (!match) return null;
-    try {
-        const decoded = decodeURIComponent(match[1]);
-        const json = JSON.parse(decoded);
-        const videos = json.flashvars.metadata;
-        const best = Array.isArray(videos) ? videos.sort((a, b) => b.bitrate - a.bitrate)[0] : null;
-        if (best) return { streamUrl: best.url, headers: okHeaders };
-    } catch {}
-    return null;
-}
-
-async function yonaplayExtractor(url, headers) {
-    const res = await fetchv2(url, headers);
-    const html = await res.text();
-    const unpacked = tryUnpack(html);
-    const match = unpacked.match(/https?:\/\/[^"']+\.m3u8/);
-    if (match) return { streamUrl: match[0], headers };
-    return null;
+  return chosen || fallback;
 }
 
 // ✅ دالة fetch v2
