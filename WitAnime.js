@@ -255,23 +255,3 @@ async function extractStreamUrl(html, episodeUrl) {
 
   return 'https://files.catbox.moe/avolvc.mp4'; // fallback
 }
-
-// ✅ دالة التحقق
-function _0xCheck() {
-  var _0x1a = typeof _0xB4F2 === 'function';
-  var _0x2b = typeof _0x7E9A === 'function';
-  return _0x1a && _0x2b ? (function (_0x3c) {
-    return _0x7E9A(_0x3c);
-  })(_0xB4F2()) : !1;
-}
-
-// ✅ فك ترميز HTML
-function decodeHTMLEntities(text) {
-  return text
-    .replace(/&#(\d+);/g, (_, dec) => String.fromCharCode(dec))
-    .replace(/&quot;/g, '"')
-    .replace(/&amp;/g, '&')
-    .replace(/&apos;/g, "'")
-    .replace(/&lt;/g, '<')
-    .replace(/&gt;/g, '>');
-}
