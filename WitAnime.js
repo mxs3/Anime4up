@@ -132,21 +132,18 @@ async function extractEpisodes(url) {
 async function extractStreamUrl(html) {
   const fallback = 'https://files.catbox.moe/avolvc.mp4';
 
-  const serverRegex = /data-id=["'](\d+)["'][^>]*data-src=["']([^"']+)["'][^>]*>\s*<span[^>]*>([^<]+)<\/span>/gi;
-  const servers = [...html.matchAll(serverRegex)]
-    .map(m => ({
-      id: m[1],
-      url: m[2].startsWith('http') ? m[2] : 'https:' + m[2],
-      name: m[3].trim().toLowerCase()
-    }))
-    .filter(s =>
-      !s.name.includes('yonaplay') &&
-      !s.url.includes('yonaplay.org')
-    );
+  const servers = [...html.matchAll(
+    /data-id=["'](\d+)["'][^>]*data-src=["']([^"']+)["'][^>]*>\s*<span[^>]*>([^<]+)<\/span>/gi
+  )].map(m => ({
+    id: m[1],
+    url: m[2].startsWith('http') ? m[2] : 'https:' + m[2],
+    name: m[3].trim().toLowerCase()
+  })).filter(s =>
+    !s.name.includes('yonaplay') &&
+    !s.url.includes('yonaplay.org')
+  );
 
-  if (!servers.length) {
-    return fallback;
-  }
+  if (!servers.length) return fallback;
 
   const results = [];
 
@@ -156,46 +153,99 @@ async function extractStreamUrl(html) {
         'User-Agent': 'Mozilla/5.0',
         'Referer': 'https://witanime.world/'
       });
+      const pageHtml = await res.text();
 
-      const page = await res.text();
+      // ✅ Videa support
+      if (srv.name.includes('videa')) {
+        const videa = await videaExtractor(srv.url);
+        if (videa?.url && videa.url !== fallback) {
+          results.push({ name: srv.name, url: videa.url });
+          continue;
+        }
+      }
 
-      // <video src="">
-      const videoMatch = page.match(/<video[^>]+src=["']([^"']+)["']/i);
-      if (videoMatch && videoMatch[1]) {
-        results.push({ name: srv.name, url: videoMatch[1] });
+      // ✅ <video src="">
+      const vidMatch = pageHtml.match(/<video[^>]+src=["']([^"']+)["']/i);
+      if (vidMatch && vidMatch[1]) {
+        results.push({ name: srv.name, url: vidMatch[1] });
         continue;
       }
 
-      // eval + m3u8
-      const unpacked = tryUnpack(page);
+      // ✅ eval + m3u8
+      const unpacked = tryUnpack(pageHtml);
       const m3u8Match = unpacked.match(/https?:\/\/[^"']+\.m3u8/);
       if (m3u8Match) {
         results.push({ name: srv.name, url: m3u8Match[0] });
         continue;
       }
 
-      // MP4 مباشر من source
-      const mp4Match = page.match(/<source[^>]+src=["']([^"']+\.mp4)["']/i);
+      // ✅ <source src="xxx.mp4">
+      const mp4Match = pageHtml.match(/<source[^>]+src=["']([^"']+\.mp4)["']/i);
       if (mp4Match && mp4Match[1]) {
         results.push({ name: srv.name, url: mp4Match[1] });
         continue;
       }
 
     } catch (err) {
-      console.log(`❌ Error with server ${srv.name}:`, err);
+      console.log(`❌ Failed to extract: ${srv.name} - ${srv.url}`, err);
     }
   }
 
-  if (results.length === 0) return fallback;
+  if (!results.length) return fallback;
   if (results.length === 1) return results[0].url;
 
-  // واجهة اختيار السيرفر
   const chosen = await showQuickMenu(
     results.map(r => ({ title: r.name, value: r.url })),
     "اختر سيرفر المشاهدة"
   );
 
   return chosen || fallback;
+}
+
+async function videaExtractor(embedUrl) {
+  const fallback = 'https://files.catbox.moe/avolvc.mp4';
+
+  try {
+    const res = await fetchv2(embedUrl, {
+      headers: {
+        'User-Agent': 'Mozilla/5.0',
+        'Referer': 'https://witanime.world/'
+      }
+    });
+    const html = await res.text();
+
+    const vcodeMatch = html.match(/var\s+vcode\s*=\s*["']([^"']+)["']/);
+    if (!vcodeMatch) return { url: fallback };
+
+    const vcode = vcodeMatch[1];
+    const xmlRes = await fetchv2(`https://videa.hu/player/xml?v=${vcode}`, {
+      headers: {
+        'User-Agent': 'Mozilla/5.0',
+        'Referer': embedUrl
+      }
+    });
+
+    const xml = await xmlRes.text();
+    const fileMatch = xml.match(/<file[^>]*>([^<]+)<\/file>/);
+    if (fileMatch && fileMatch[1]) {
+      return { url: fileMatch[1] };
+    }
+
+  } catch (err) {
+    console.log('[Videa Extractor Error]', err);
+  }
+
+  return { url: fallback };
+}
+
+function tryUnpack(html) {
+  const evalMatch = html.match(/eval\(function\(p,a,c,k,e,d[\s\S]+?\)\)/);
+  if (!evalMatch) return html;
+  try {
+    return unpack(evalMatch[0]);
+  } catch {
+    return html;
+  }
 }
 
 // ✅ دالة fetch v2
