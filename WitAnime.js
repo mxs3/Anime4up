@@ -130,8 +130,6 @@ async function extractEpisodes(url) {
 }
 
 async function extractStreamUrl(html) {
-  const fallback = 'https://files.catbox.moe/avolvc.mp4';
-
   const servers = [...html.matchAll(
     /data-id=["'](\d+)["'][^>]*data-src=["']([^"']+)["'][^>]*>\s*<span[^>]*>([^<]+)<\/span>/gi
   )].map(m => ({
@@ -143,7 +141,7 @@ async function extractStreamUrl(html) {
     !s.url.includes('yonaplay.org')
   );
 
-  if (!servers.length) return fallback;
+  if (!servers.length) throw new Error('No valid servers');
 
   const results = [];
 
@@ -153,89 +151,101 @@ async function extractStreamUrl(html) {
         'User-Agent': 'Mozilla/5.0',
         'Referer': 'https://witanime.world/'
       });
-      const pageHtml = await res.text();
+      const page = await res.text();
 
-      // ✅ Videa support
+      // <video src="">
+      const directVideo = page.match(/<video[^>]+src=["']([^"']+)["']/i);
+      if (directVideo) {
+        results.push({ name: srv.name, url: directVideo[1] });
+        continue;
+      }
+
+      // <source src="...mp4">
+      const mp4Source = page.match(/<source[^>]+src=["']([^"']+\.mp4)["']/i);
+      if (mp4Source) {
+        results.push({ name: srv.name, url: mp4Source[1] });
+        continue;
+      }
+
+      // m3u8 مباشر
+      const hlsMatch = page.match(/https?:\/\/[^\s"'<>]+\.m3u8/);
+      if (hlsMatch) {
+        results.push({ name: srv.name, url: hlsMatch[0] });
+        continue;
+      }
+
+      // mp4 مباشر
+      const mp4Match = page.match(/https?:\/\/[^\s"'<>]+\.mp4/);
+      if (mp4Match) {
+        results.push({ name: srv.name, url: mp4Match[0] });
+        continue;
+      }
+
+      // eval + unpack + m3u8
+      const unpacked = tryUnpack(page);
+      const unpackHLS = unpacked.match(/https?:\/\/[^\s"'<>]+\.m3u8/);
+      if (unpackHLS) {
+        results.push({ name: srv.name, url: unpackHLS[0] });
+        continue;
+      }
+
+      const unpackMP4 = unpacked.match(/https?:\/\/[^\s"'<>]+\.mp4/);
+      if (unpackMP4) {
+        results.push({ name: srv.name, url: unpackMP4[0] });
+        continue;
+      }
+
+      // videaExtractor
       if (srv.name.includes('videa')) {
         const videa = await videaExtractor(srv.url);
-        if (videa?.url && videa.url !== fallback) {
+        if (videa?.url) {
           results.push({ name: srv.name, url: videa.url });
           continue;
         }
       }
 
-      // ✅ <video src="">
-      const vidMatch = pageHtml.match(/<video[^>]+src=["']([^"']+)["']/i);
-      if (vidMatch && vidMatch[1]) {
-        results.push({ name: srv.name, url: vidMatch[1] });
-        continue;
-      }
-
-      // ✅ eval + m3u8
-      const unpacked = tryUnpack(pageHtml);
-      const m3u8Match = unpacked.match(/https?:\/\/[^"']+\.m3u8/);
-      if (m3u8Match) {
-        results.push({ name: srv.name, url: m3u8Match[0] });
-        continue;
-      }
-
-      // ✅ <source src="xxx.mp4">
-      const mp4Match = pageHtml.match(/<source[^>]+src=["']([^"']+\.mp4)["']/i);
-      if (mp4Match && mp4Match[1]) {
-        results.push({ name: srv.name, url: mp4Match[1] });
-        continue;
-      }
-
-    } catch (err) {
-      console.log(`❌ Failed to extract: ${srv.name} - ${srv.url}`, err);
+    } catch (e) {
+      console.log(`❌ ${srv.name} failed:`, e);
     }
   }
 
-  if (!results.length) return fallback;
+  if (!results.length) throw new Error('فشل كامل في استخراج الروابط');
+
   if (results.length === 1) return results[0].url;
 
   const chosen = await showQuickMenu(
     results.map(r => ({ title: r.name, value: r.url })),
-    "اختر سيرفر المشاهدة"
+    "اختر سيرفر"
   );
 
-  return chosen || fallback;
+  if (!chosen) throw new Error('لم يتم اختيار سيرفر');
+
+  return chosen;
 }
 
 async function videaExtractor(embedUrl) {
-  const fallback = 'https://files.catbox.moe/avolvc.mp4';
-
   try {
     const res = await fetchv2(embedUrl, {
-      headers: {
-        'User-Agent': 'Mozilla/5.0',
-        'Referer': 'https://witanime.world/'
-      }
+      'User-Agent': 'Mozilla/5.0',
+      'Referer': 'https://witanime.world/'
     });
     const html = await res.text();
 
-    const vcodeMatch = html.match(/var\s+vcode\s*=\s*["']([^"']+)["']/);
-    if (!vcodeMatch) return { url: fallback };
+    const vcode = html.match(/var\s+vcode\s*=\s*["']([^"']+)["']/)?.[1];
+    if (!vcode) return;
 
-    const vcode = vcodeMatch[1];
     const xmlRes = await fetchv2(`https://videa.hu/player/xml?v=${vcode}`, {
-      headers: {
-        'User-Agent': 'Mozilla/5.0',
-        'Referer': embedUrl
-      }
+      'User-Agent': 'Mozilla/5.0',
+      'Referer': embedUrl
     });
-
     const xml = await xmlRes.text();
-    const fileMatch = xml.match(/<file[^>]*>([^<]+)<\/file>/);
-    if (fileMatch && fileMatch[1]) {
-      return { url: fileMatch[1] };
-    }
+
+    const file = xml.match(/<file[^>]*>([^<]+)<\/file>/)?.[1];
+    if (file) return { url: file };
 
   } catch (err) {
-    console.log('[Videa Extractor Error]', err);
+    console.log('❌ Videa extractor error:', err);
   }
-
-  return { url: fallback };
 }
 
 function tryUnpack(html) {
