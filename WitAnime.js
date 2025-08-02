@@ -134,6 +134,12 @@ async function extractStreamUrl(html) {
 
     const multiStreams = [];
 
+    const headers = {
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/115.0.0.0 Safari/537.36",
+        "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+        "Referer": "https://witanime.com"
+    };
+
     const serverMatches = [...html.matchAll(
         /<a[^>]+data-server-id=["']?(\d+)["']?[^>]*>\s*<span[^>]*>([^<]+)<\/span>/gi
     )];
@@ -149,17 +155,17 @@ async function extractStreamUrl(html) {
         let stream = null;
 
         if (title.includes("streamwish")) {
-            stream = await streamwishExtractor(embedUrl);
+            stream = await streamwishExtractor(embedUrl, headers);
         } else if (title.includes("videa")) {
-            stream = await videaExtractor(embedUrl);
+            stream = await videaExtractor(embedUrl, headers);
         } else if (title.includes("dailymotion")) {
-            stream = await dailymotionExtractor(embedUrl);
+            stream = await dailymotionExtractor(embedUrl, headers);
         } else if (title.includes("yourupload")) {
-            stream = await yourUploadExtractor(embedUrl);
+            stream = await yourUploadExtractor(embedUrl, headers);
         } else if (title.includes("ok.ru")) {
-            stream = await okruExtractor(embedUrl);
+            stream = await okruExtractor(embedUrl, headers);
         } else if (title.includes("yonaplay")) {
-            stream = await yonaplayExtractor(embedUrl);
+            stream = await yonaplayExtractor(embedUrl, headers);
         }
 
         if (stream) {
@@ -176,7 +182,7 @@ async function extractStreamUrl(html) {
     return multiStreams;
 }
 
-// --------------------[ Helper Functions ]----------------------
+// -------------- Extractor Helpers --------------
 
 function tryUnpack(html) {
     const evalMatch = html.match(/eval\(function\(p,a,c,k,e,d[\s\S]+?\)\)/);
@@ -188,8 +194,7 @@ function tryUnpack(html) {
     }
 }
 
-async function streamwishExtractor(url) {
-    const headers = { Referer: url };
+async function streamwishExtractor(url, headers) {
     const res = await fetchv2(url, headers);
     const html = await res.text();
     const unpacked = tryUnpack(html);
@@ -198,8 +203,7 @@ async function streamwishExtractor(url) {
     return null;
 }
 
-async function videaExtractor(url) {
-    const headers = { Referer: url };
+async function videaExtractor(url, headers) {
     const res = await fetchv2(url, headers);
     const html = await res.text();
     const fileMatch = html.match(/sources:\s*\[\s*\{\s*file:\s*["']([^"']+)["']/i);
@@ -210,8 +214,7 @@ async function videaExtractor(url) {
     return null;
 }
 
-async function dailymotionExtractor(url) {
-    const headers = { Referer: url };
+async function dailymotionExtractor(url, headers) {
     const res = await fetchv2(url, headers);
     const html = await res.text();
     const match = html.match(/"qualities":({.*?})\s*,\s*"report"/s);
@@ -224,8 +227,7 @@ async function dailymotionExtractor(url) {
     return null;
 }
 
-async function yourUploadExtractor(url) {
-    const headers = { Referer: url };
+async function yourUploadExtractor(url, headers) {
     const res = await fetchv2(url, headers);
     const html = await res.text();
     const match = html.match(/player\.src\(\{\s*type:\s*['"]video\/mp4['"],\s*src:\s*['"]([^'"]+)['"]/);
@@ -233,9 +235,12 @@ async function yourUploadExtractor(url) {
     return null;
 }
 
-async function okruExtractor(url) {
-    const headers = { Referer: url };
-    const res = await fetchv2(url, headers);
+async function okruExtractor(url, headers) {
+    const okHeaders = {
+        ...headers,
+        "Origin": "https://ok.ru"
+    };
+    const res = await fetchv2(url, okHeaders);
     const html = await res.text();
     const match = html.match(/data-options="([^"]+)"/);
     if (!match) return null;
@@ -244,13 +249,12 @@ async function okruExtractor(url) {
         const json = JSON.parse(decoded);
         const videos = json.flashvars.metadata;
         const best = Array.isArray(videos) ? videos.sort((a, b) => b.bitrate - a.bitrate)[0] : null;
-        if (best) return { streamUrl: best.url, headers };
+        if (best) return { streamUrl: best.url, headers: okHeaders };
     } catch {}
     return null;
 }
 
-async function yonaplayExtractor(url) {
-    const headers = { Referer: url };
+async function yonaplayExtractor(url, headers) {
     const res = await fetchv2(url, headers);
     const html = await res.text();
     const unpacked = tryUnpack(html);
